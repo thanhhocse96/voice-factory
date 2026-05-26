@@ -1,6 +1,6 @@
 # Milestones
 
-Current: M1 - Tauri Gateway Lifecycle
+Current: M2 - Browser CDP Health And Vbee Preview Harness
 
 Detailed roadmap source: `.context/MILESTONE_ROADMAP.md`.
 
@@ -29,7 +29,7 @@ Out of scope:
 - Podman as default runtime.
 - Sound Editor timeline.
 
-## Current: M1 - Tauri Gateway Lifecycle
+## Completed: M1 - Tauri Gateway Lifecycle
 
 Goal: Tauri starts/checks/polls Gateway and shows degraded runtime state.
 
@@ -48,14 +48,45 @@ Acceptance:
 
 ## Next: M2 - Browser CDP and Vbee Preview
 
-Goal: Browser CDP health and first real Vbee preview/incognito flow.
+Superseded by current M2 below.
 
-Promotion source: `.context/MILESTONE_ROADMAP.md#M2 - Browser CDP Health And Vbee Preview Harness`.
+## Current: M2 - Browser CDP Health And Vbee Preview Harness
 
-Before coding M2:
+Goal: add a BrowserService boundary, CDP health reporting, and a Vbee preview protocol harness without making real Vbee mandatory for dev/test.
 
-- [ ] Re-read `docs/design/04_migration-plan-to-gateway-core.md`.
-- [ ] Re-read `docs/design/07_vbee-dual-execution-workflows.md`.
-- [ ] Re-read `.context/modules/TTS_PROVIDER_ADAPTERS.md`.
-- [ ] Promote M2 acceptance from `.context/MILESTONE_ROADMAP.md` into this file.
-- [ ] Update `AGENTS.md` current milestone if M1 is closed.
+Source docs:
+
+```text
+docs/design/04_migration-plan-to-gateway-core.md
+docs/design/07_vbee-dual-execution-workflows.md
+.context/modules/TTS_PROVIDER_ADAPTERS.md
+.context/MILESTONE_ROADMAP.md
+```
+
+Acceptance:
+
+- [x] `BrowserService` exists behind an adapter contract.
+- [x] `PlaywrightCdpAdapter` or equivalent CDP adapter can healthcheck configured CDP URL.
+- [x] `/health` reports Browser CDP available/unavailable without crashing Gateway.
+- [x] JobRunner does not import browser automation directly.
+- [x] Vbee preview protocol recorder/harness exists for debug/test mode.
+- [x] Recorder can represent expected preview sequence, including `GET_REMAINING_PREVIEW`.
+- [x] Fake provider remains the default test path.
+- [x] M2 milestone doc and test report are created.
+
+Out of scope:
+
+- Full official Vbee download flow.
+- Provider account credential storage.
+- Replacing fake adapter.
+- Sound editor timeline.
+
+Ask human before coding if:
+
+- The expected browser target is unclear.
+- The recorder must touch a live authenticated Vbee session.
+- CDP adapter requires installing browsers or Playwright packages.
+
+## Next: M3 - Provider Registry And Execution Mode Routing
+
+Goal: persist provider/execution mode choices and route jobs through provider contracts instead of JobRunner branches.

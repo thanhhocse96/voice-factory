@@ -21,9 +21,11 @@ export function loadConfig() {
       pollMs: intFromEnv('WORKER_POLL_MS', 1000)
     },
     runtime: {
+      browserAdapter: process.env.BROWSER_ADAPTER || 'playwright-cdp',
       vbeeAdapter: process.env.VBEE_ADAPTER || 'fake',
       delayPolicy: process.env.DELAY_POLICY || 'none',
-      browserCdpUrl: process.env.CDP_URL || 'http://127.0.0.1:9222'
+      browserCdpUrl: process.env.CDP_URL || 'http://127.0.0.1:9222',
+      browserHealthTimeoutMs: intFromEnv('BROWSER_HEALTH_TIMEOUT_MS', 800)
     }
   };
 }

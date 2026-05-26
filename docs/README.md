@@ -84,3 +84,8 @@ After adding, moving, or renaming a docs file, update this index.
 4. [VoiceFactory Rename And Provider Scope](milestones/M1_004_voicefactory-rename-and-provider-scope.md)
 5. [Tauri Gateway Lifecycle Shell](milestones/M1_005_tauri-gateway-lifecycle-shell.md)
 6. [Tauri Gateway Lifecycle Test Report](milestones/M1_006_tauri-gateway-lifecycle-test-report.md)
+
+### M2 - Browser CDP Health And Vbee Preview Harness
+
+1. [Browser CDP Health And Preview Harness](milestones/M2_001_browser-cdp-health-and-preview-harness.md)
+2. [Browser CDP Health Test Report](milestones/M2_002_browser-cdp-health-test-report.md)

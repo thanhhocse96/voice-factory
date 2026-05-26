@@ -4,7 +4,7 @@
 
 ## Current Milestone
 
-Current milestone: **M1 - Tauri Gateway Lifecycle**
+Current milestone: **M2 - Browser CDP Health And Vbee Preview Harness**
 
 Milestone source of truth: `.context/MILESTONES.md`.
 

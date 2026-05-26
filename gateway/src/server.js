@@ -3,6 +3,8 @@ import { createRouter } from './api/routes.js';
 import { QueueService } from './application/queue-service.js';
 import { JobRunner } from './application/job-runner.js';
 import { loadConfig } from './config.js';
+import { BrowserService } from './infrastructure/browser/browser-service.js';
+import { PlaywrightCdpAdapter } from './infrastructure/browser/adapters/playwright-cdp.js';
 import { openDatabase } from './infrastructure/db/sqlite.js';
 import { FileService } from './infrastructure/files/file-service.js';
 import { FakeVbeeAdapter } from './vbee/adapters/fake-vbee.js';
@@ -12,6 +14,12 @@ export async function startGateway() {
   const db = openDatabase(config.dbPath);
   const queueService = new QueueService(db);
   const fileService = new FileService({ db, audioDir: config.audioDir });
+  const browserService = new BrowserService({
+    adapter: new PlaywrightCdpAdapter({
+      cdpUrl: config.runtime.browserCdpUrl,
+      timeoutMs: config.runtime.browserHealthTimeoutMs
+    })
+  });
 
   const vbeeAdapter = new FakeVbeeAdapter();
   const jobRunner = new JobRunner({
@@ -23,7 +31,7 @@ export async function startGateway() {
 
   if (config.worker.enabled) jobRunner.start();
 
-  const router = createRouter({ config, queueService, fileService, jobRunner, db });
+  const router = createRouter({ config, queueService, fileService, jobRunner, browserService, db });
   const server = http.createServer(router);
 
   await new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-<!-- AUTO_START | hash: deb00c57 | built: 2026-05-26T05:45 -->
+<!-- AUTO_START | hash: deb00c57 | built: 2026-05-26T09:37 -->
 # Context: `src-tauri`
 
 > **[auto-generated — không sửa tay phần này]**  

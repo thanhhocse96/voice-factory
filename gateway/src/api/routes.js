@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readJson, sendError, sendFile, sendJson, sendStaticFile } from './http-utils.js';
 
-export function createRouter({ config, queueService, fileService, jobRunner, db }) {
+export function createRouter({ config, queueService, fileService, jobRunner, browserService, db }) {
   const publicDir = path.join(config.rootDir, 'public');
 
   return async function route(req, res) {
@@ -9,14 +9,19 @@ export function createRouter({ config, queueService, fileService, jobRunner, db 
       const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
 
       if (req.method === 'GET' && url.pathname === '/health') {
+        const browserHealth = await browserService.healthcheck();
+        const providerDegraded = config.runtime.vbeeAdapter !== 'fake';
+        const degraded = providerDegraded || browserHealth.degraded;
+
         return sendJson(res, 200, {
           ok: true,
           gateway: 'running',
           db: db ? 'ok' : 'unavailable',
-          browserCdp: 'unavailable',
+          browserCdp: browserHealth.status,
+          browser: browserHealth,
           vbeeSession: config.runtime.vbeeAdapter === 'fake' ? 'fake' : 'unknown',
           worker: jobRunner.status(),
-          degraded: config.runtime.vbeeAdapter !== 'fake',
+          degraded,
           runtime: config.runtime
         });
       }

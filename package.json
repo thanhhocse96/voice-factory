@@ -19,6 +19,7 @@
     "desktop:build": "tauri build",
     "smoke": "bash scripts/smoke-gateway.sh",
     "smoke:lifecycle": "bash scripts/smoke-lifecycle.sh",
+    "test:m2": "node --test gateway/src/**/*.test.js",
     "context:build": "python3 ../context-mapping/cli.py build . --quiet",
     "context:check": "python3 ../context-mapping/cli.py check-consistency ."
   },
