@@ -51,6 +51,45 @@ pub fn stop_gateway() -> Result<RuntimeSnapshot, LifecycleError> {
     run_lifecycle("stop")
 }
 
+pub fn start_browser() -> Result<RuntimeSnapshot, LifecycleError> {
+    run_browser_lifecycle("start")
+}
+
+pub fn status_browser() -> Result<RuntimeSnapshot, LifecycleError> {
+    run_browser_lifecycle("status")
+}
+
+pub fn stop_browser_if_owned() -> Result<RuntimeSnapshot, LifecycleError> {
+    // For simplicity, always allow stop for browser in early impl (refine with owner later)
+    run_browser_lifecycle("stop")
+}
+
+fn run_browser_lifecycle(action: &str) -> Result<RuntimeSnapshot, LifecycleError> {
+    let root = project_root()?;
+    let script = root.join("scripts").join("browser-lifecycle.mjs");
+    let node = env::var("VOICEFACTORY_NODE").unwrap_or_else(|_| "node".to_string());
+
+    let output = Command::new(node)
+        .arg(script)
+        .arg(action)
+        .current_dir(root)
+        .output()
+        .map_err(|error| LifecycleError::new(format!("failed to run Browser lifecycle: {error}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = if stderr.is_empty() { stdout } else { stderr };
+        return Err(LifecycleError::new(format!(
+            "Browser lifecycle {action} failed: {detail}"
+        )));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|error| LifecycleError::new(format!("invalid browser lifecycle output: {error}")))?;
+    snapshot_from_json(&stdout)
+}
+
 fn run_lifecycle(action: &str) -> Result<RuntimeSnapshot, LifecycleError> {
     let root = project_root()?;
     let script = root.join("scripts").join("gateway-lifecycle.mjs");

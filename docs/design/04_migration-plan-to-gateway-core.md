@@ -95,8 +95,8 @@ Mục tiêu: chốt kiến trúc mới trước khi code.
 
 Việc cần làm:
 
-- Giữ `docs/zeroclaw-vbee-working-spec.md` làm tài liệu nền.
-- Giữ `docs/mvp-architecture.md` làm sơ đồ MVP.
+- Giữ `docs/design/01_zeroclaw-vbee-working-spec.md` làm tài liệu nền (source of truth synced from ZeroClaw VBEE TTS/docs/).
+- Giữ `docs/design/02_mvp-architecture.md` làm sơ đồ MVP.
 - Dùng file này làm migration plan.
 - Chốt quyết định:
   - Gateway là core.

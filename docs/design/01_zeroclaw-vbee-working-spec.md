@@ -104,11 +104,14 @@ Các hướng thay thế nên được thiết kế như adapter trong Gateway, 
 |---|---|---|
 | Playwright + Brave CDP | baseline MVP | Test nhanh, dùng profile thật |
 | Playwright + Chromium CDP | baseline production nhẹ | Dễ đóng gói, ít biến số Brave |
+| Lightpanda (CDP headless) | experimental adapter | Headless, ~9x less memory / faster than Chrome; good for CI, low-resource desktop, or pure automation. Drop-in via connectOverCDP. **Validate stealth/fingerprint on Vbee** (not a "real" user browser). |
 | Camoufox | adapter thử nghiệm | Khi Chromium/Brave bị flag hoặc cần fingerprint Firefox |
 | Patchright | adapter thử nghiệm | Khi cần Playwright-like stealth mạnh hơn |
 | Vbee API chính thức | ưu tiên nếu dùng được | Ổn định, đúng hướng sản phẩm, ít phụ thuộc UI |
 
 Không nên bắt đầu bằng Camoufox/Patchright. Hãy làm Gateway interface ổn trước, sau đó đổi browser adapter nếu cần.
+
+**Ghi chú cho Lightpanda (và headless nói chung):** Thiết kế gốc ưu tiên "Brave/Chromium headed + profile thật" để có session/cookie/fingerprint giống user thật khi tương tác Vbee (tránh bị coi là bot, rate limit, hoặc yêu cầu GET_REMAINING_PREVIEW bị lỗi). Lightpanda phù hợp làm option phụ (nhẹ, headless), nhưng cần test kỹ trên flow preview/official trước khi coi là baseline. Architecture hỗ trợ tốt vì mọi browser logic nằm sau BrowserService + adapter (hiện tại M2 chỉ health CDP, tương lai sẽ attach page/WS).
 
 ## 3. Hai workflow cốt lõi
 

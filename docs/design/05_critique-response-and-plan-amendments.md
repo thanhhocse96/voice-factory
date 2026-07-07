@@ -1,6 +1,6 @@
 # Design Review Response - Claude Critique
 
-Nguồn critique: `Claude Critic dự án.md`  
+Nguồn critique: [artifacts/claude-critique-of-migration-plan.md](artifacts/claude-critique-of-migration-plan.md) (from new critique tool) 
 Ngày phản hồi: 2026-05-25  
 Mục tiêu: chuyển các câu hỏi phản biện thành quyết định thiết kế và sửa đổi migration plan.
 

@@ -1,0 +1,166 @@
+<h2 class="sr-only">Công cụ tạo prompt phản biện cho migration plan và master doc</h2>
+
+<div style="padding: 1.5rem 0;">
+
+  <div style="display: flex; gap: 12px; margin-bottom: 1.5rem; flex-wrap: wrap;">
+    <button onclick="setMode('ai')" id="btn-ai" style="padding: 8px 20px; border-radius: var(--border-radius-md); border: 2px solid var(--color-border-info); background: var(--color-background-info); color: var(--color-text-info); font-weight: 500; cursor: pointer;">
+      <i class="ti ti-robot" aria-hidden="true"></i> Dùng cho AI review
+    </button>
+    <button onclick="setMode('team')" id="btn-team" style="padding: 8px 20px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-primary); font-weight: 500; cursor: pointer;">
+      <i class="ti ti-users" aria-hidden="true"></i> Dùng cho team
+    </button>
+  </div>
+
+  <div id="focus-area" style="margin-bottom: 1.5rem;">
+    <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0 0 10px;">Chọn góc phản biện (có thể chọn nhiều):</p>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;" id="tags">
+      <button onclick="toggleTag(this)" data-tag="architecture" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">Kiến trúc</button>
+      <button onclick="toggleTag(this)" data-tag="risk" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">Rủi ro</button>
+      <button onclick="toggleTag(this)" data-tag="db" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">Database</button>
+      <button onclick="toggleTag(this)" data-tag="phase" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">Thứ tự phase</button>
+      <button onclick="toggleTag(this)" data-tag="rollback" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">Rollback</button>
+      <button onclick="toggleTag(this)" data-tag="vbee" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">Vbee protocol</button>
+      <button onclick="toggleTag(this)" data-tag="mvp" style="padding: 5px 14px; border-radius: 999px; border: 0.5px solid var(--color-border-secondary); font-size: 13px; cursor: pointer; background: var(--color-background-primary); color: var(--color-text-primary);">MVP cut line</button>
+    </div>
+  </div>
+
+  <div style="background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 1.25rem; margin-bottom: 1rem; border: 0.5px solid var(--color-border-tertiary);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+      <span style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary);">Prompt</span>
+      <button onclick="copyPrompt()" style="font-size: 12px; padding: 4px 12px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); cursor: pointer; background: var(--color-background-primary); color: var(--color-text-secondary);">
+        <i class="ti ti-copy" aria-hidden="true"></i> Copy
+      </button>
+    </div>
+    <pre id="prompt-output" style="white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary); margin: 0; line-height: 1.7;"></pre>
+  </div>
+
+  <div id="copy-confirm" style="display:none; font-size: 13px; color: var(--color-text-success); margin-top: 4px;">
+    <i class="ti ti-check" aria-hidden="true"></i> Đã copy vào clipboard
+  </div>
+</div>
+
+<script>
+let mode = 'ai';
+let activeTags = new Set();
+
+const tagQuestions = {
+  architecture: {
+    ai: `- Kiến trúc Gateway Core có thực sự giải quyết được root cause, hay chỉ di chuyển complexity từ chỗ này sang chỗ khác?\n- Có điểm nào trong sơ đồ mới vẫn tạo ra single point of failure không?`,
+    team: `- Ai trong team có thể giải thích kiến trúc mới mà không cần nhìn tài liệu?\n- Có phần nào mà chỉ một người hiểu không?`
+  },
+  risk: {
+    ai: `- Trong 6 rủi ro được liệt kê, rủi ro nào có xác suất cao nhất trong 2 tuần đầu?\n- Có rủi ro nào chưa được đề cập không, đặc biệt liên quan đến Windows/WSL2 networking?`,
+    team: `- Nếu phase 4 bị block 1 tuần, team sẽ làm gì trong thời gian đó?\n- Ai chịu trách nhiệm khi acceptance test fail?`
+  },
+  db: {
+    ai: `- Migration SQL từ tts_queue sang audio_assets có handle case file_path IS NULL không? Điều gì xảy ra với các job bị interrupt?\n- Có race condition nào giữa insert audio_assets và update tts_queue.status='done' không?`,
+    team: `- Nếu DB migration phase 2 fail ở production, mất bao lâu để rollback?\n- Team có test migration với data thật từ tts_queue hiện tại chưa?`
+  },
+  phase: {
+    ai: `- Phase 4 (BrowserService) và Phase 5 (VbeeService) có dependency ngầm — BrowserSessionAdapter cần BrowserService từ Phase 4. Tại sao chúng được thiết kế tuần tự thay vì song song?\n- Phase 7 (UI migration) có thể bắt đầu sớm hơn không nếu chỉ cần /health và /api/queue?`,
+    team: `- Phase nào có thể làm song song để rút ngắn timeline?\n- Phase nào là blocker thực sự — không làm xong thì các phase sau không chạy được?`
+  },
+  rollback: {
+    ai: `- Rollback plan của Phase 2 nói "UI có thể tạm đọc lại tts_queue" — nhưng nếu schema đã migrate, code UI cũ có còn compatible không?\n- Có phase nào mà rollback thực ra là không thể thực hiện trong thực tế không?`,
+    team: `- Đã test rollback của bất kỳ phase nào chưa, hay chỉ viết lý thuyết?\n- Nếu phải rollback phase 6 sau khi File Service đã xử lý 100 file, những file đó sẽ ở đâu?`
+  },
+  vbee: {
+    ai: `- Frame GET_REMAINING_PREVIEW bắt buộc phải gửi — nếu BrowserSessionAdapter bỏ sót frame này, hậu quả cụ thể là gì và plan có cơ chế nào để verify không?\n- Presigned URL TTL 3 phút — File Service có guarantee download ngay sau khi nhận URL không, hay còn bị queue delay?`,
+    team: `- Ai trong team đã đọc toàn bộ Vbee WS protocol 7 bước?\n- Nếu Vbee thay đổi API, phát hiện bằng cách nào và mất bao lâu để fix?`
+  },
+  mvp: {
+    ai: `- MVP cut line yêu cầu "Browser CDP health ok" — nhưng nếu user chưa có Brave đang chạy, app có vẫn mở được không hay crash?\n- "Worker xử lý ít nhất preview/incognito" — incognito worker có delay 30s–3 phút, acceptance test sẽ chờ bao lâu?`,
+    team: `- Ai quyết định khi nào MVP "đủ tốt" để ship?\n- Có user test thật nào trong MVP cut line không, hay chỉ là curl test?`
+  }
+};
+
+const basePrompt = {
+  ai: `Bạn là senior software architect. Tôi sẽ cung cấp 2 tài liệu:
+1. zeroclaw-tts-master.md — spec kỹ thuật đầy đủ của hệ thống TTS hiện tại
+2. migration-plan-to-gateway-core.md — plan refactor sang Gateway Core, 10 phases
+
+Nhiệm vụ: phản biện migration plan theo góc nhìn kỹ thuật.
+
+Quy tắc phản biện:
+- Chỉ đặt câu hỏi, không đưa ra giải pháp ngay
+- Mỗi câu hỏi phải dẫn đến một quyết định hoặc rủi ro cụ thể
+- Ưu tiên những điểm mà master doc và migration plan mâu thuẫn nhau
+- Nếu một giả định trong plan chưa được validate, hãy chỉ ra
+
+`,
+  team: `Dùng cho buổi review nội bộ — đọc to từng câu hỏi, cả team trả lời trước khi chuyển sang câu tiếp theo.
+
+Quy tắc:
+- Không ai được trả lời "sẽ làm sau"
+- Nếu không có câu trả lời → ghi vào backlog ngay
+- Người mới nhất trong team trả lời trước
+
+`
+};
+
+function buildPrompt() {
+  let p = basePrompt[mode];
+  
+  if (activeTags.size === 0) {
+    p += `Các góc phản biện cần cover:\n`;
+    Object.keys(tagQuestions).forEach(tag => {
+      p += `\n[${tag.toUpperCase()}]\n${tagQuestions[tag][mode]}\n`;
+    });
+  } else {
+    p += `Tập trung vào các góc sau:\n`;
+    activeTags.forEach(tag => {
+      p += `\n[${tag.toUpperCase()}]\n${tagQuestions[tag][mode]}\n`;
+    });
+  }
+
+  if (mode === 'ai') {
+    p += `\nKết thúc bằng: liệt kê tối đa 3 điểm mà nếu không giải quyết, migration này có nguy cơ thất bại cao nhất.`;
+  } else {
+    p += `\nKết thúc buổi: mỗi người viết 1 câu — "Điều tôi lo nhất là..." — và dán lên board.`;
+  }
+
+  return p;
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn-ai').style.border = m === 'ai' ? '2px solid var(--color-border-info)' : '0.5px solid var(--color-border-secondary)';
+  document.getElementById('btn-ai').style.background = m === 'ai' ? 'var(--color-background-info)' : 'var(--color-background-primary)';
+  document.getElementById('btn-ai').style.color = m === 'ai' ? 'var(--color-text-info)' : 'var(--color-text-primary)';
+  document.getElementById('btn-team').style.border = m === 'team' ? '2px solid var(--color-border-info)' : '0.5px solid var(--color-border-secondary)';
+  document.getElementById('btn-team').style.background = m === 'team' ? 'var(--color-background-info)' : 'var(--color-background-primary)';
+  document.getElementById('btn-team').style.color = m === 'team' ? 'var(--color-text-info)' : 'var(--color-text-primary)';
+  render();
+}
+
+function toggleTag(el) {
+  const tag = el.dataset.tag;
+  if (activeTags.has(tag)) {
+    activeTags.delete(tag);
+    el.style.background = 'var(--color-background-primary)';
+    el.style.color = 'var(--color-text-primary)';
+    el.style.border = '0.5px solid var(--color-border-secondary)';
+  } else {
+    activeTags.add(tag);
+    el.style.background = 'var(--color-background-info)';
+    el.style.color = 'var(--color-text-info)';
+    el.style.border = '0.5px solid var(--color-border-info)';
+  }
+  render();
+}
+
+function render() {
+  document.getElementById('prompt-output').textContent = buildPrompt();
+}
+
+function copyPrompt() {
+  const text = document.getElementById('prompt-output').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const c = document.getElementById('copy-confirm');
+    c.style.display = 'block';
+    setTimeout(() => c.style.display = 'none', 2000);
+  });
+}
+
+render();
+</script>

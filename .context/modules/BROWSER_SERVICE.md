@@ -43,5 +43,5 @@ Do not require a live browser for automated tests.
 
 Connecting to pages, evaluating scripts, intercepting network/WebSocket frames, and browser session reuse are not implemented yet.
 
-Camoufox and Patchright adapters are future options, not M2 defaults.
+Camoufox, Patchright, and Lightpanda (headless CDP) adapters are future options, not M2 defaults. Headed real-browser (Brave/Chromium with profile) remains the baseline for Vbee flows per design/01.
 <!-- MANUAL_END -->

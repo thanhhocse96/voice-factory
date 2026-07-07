@@ -67,6 +67,22 @@ fn gateway_runtime_stop_if_owned(owner: State<'_, RuntimeOwner>) -> Result<Runti
     Ok(snapshot)
 }
 
+#[tauri::command]
+fn browser_runtime_status() -> Result<RuntimeSnapshot, String> {
+    gateway_lifecycle::status_browser().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn browser_runtime_start() -> Result<RuntimeSnapshot, String> {
+    gateway_lifecycle::start_browser().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn browser_runtime_stop_if_owned() -> Result<RuntimeSnapshot, String> {
+    // Early impl: allow stop; refine ownership later like gateway
+    gateway_lifecycle::stop_browser_if_owned().map_err(|error| error.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -77,12 +93,18 @@ pub fn run() {
                 Ok(snapshot) => owner.observe_start(&snapshot),
                 Err(error) => owner.record_start_error(Some(error.to_string())),
             }
+            // Parallel browser launch for easier Brave test (per plan in M2_004/M2_005)
+            // Does not block if fails (degraded in gateway health)
+            let _ = gateway_lifecycle::start_browser();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             gateway_runtime_status,
             gateway_runtime_start,
-            gateway_runtime_stop_if_owned
+            gateway_runtime_stop_if_owned,
+            browser_runtime_status,
+            browser_runtime_start,
+            browser_runtime_stop_if_owned
         ])
         .run(tauri::generate_context!())
         .expect("error while running VoiceFactory desktop shell");
