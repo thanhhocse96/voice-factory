@@ -3,12 +3,15 @@ mod gateway_lifecycle;
 use gateway_lifecycle::RuntimeSnapshot;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+
+const DEFAULT_LOCAL_URL: &str = "http://127.0.0.1:3000";
 
 #[derive(Default)]
 struct RuntimeOwner {
     started_by_shell: AtomicBool,
     last_start_error: Mutex<Option<String>>,
+    remote_url: Mutex<Option<String>>,
 }
 
 impl RuntimeOwner {
@@ -30,6 +33,20 @@ impl RuntimeOwner {
             .ok()
             .and_then(|slot| slot.clone())
     }
+
+    fn set_remote(&self, url: String) {
+        if let Ok(mut slot) = self.remote_url.lock() {
+            *slot = Some(url);
+        }
+    }
+
+    // Some(url) => this shell is pointed at a backend on another machine
+    // (docs/design/08 Phase D.4): no local gateway/browser process exists to
+    // manage, so every runtime command below short-circuits to a remote
+    // health check instead of touching gateway_lifecycle's local-process path.
+    fn remote_url(&self) -> Option<String> {
+        self.remote_url.lock().ok().and_then(|slot| slot.clone())
+    }
 }
 
 impl Drop for RuntimeOwner {
@@ -42,6 +59,9 @@ impl Drop for RuntimeOwner {
 
 #[tauri::command]
 fn gateway_runtime_status(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapshot, String> {
+    if let Some(url) = owner.remote_url() {
+        return Ok(gateway_lifecycle::status_remote(&url));
+    }
     let mut snapshot = gateway_lifecycle::status_gateway().map_err(|error| error.to_string())?;
     if snapshot.error.is_none() {
         snapshot.error = owner.last_start_error();
@@ -51,6 +71,10 @@ fn gateway_runtime_status(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnaps
 
 #[tauri::command]
 fn gateway_runtime_start(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapshot, String> {
+    if let Some(url) = owner.remote_url() {
+        // Nothing local to start - the backend runs on another machine.
+        return Ok(gateway_lifecycle::status_remote(&url));
+    }
     let snapshot = gateway_lifecycle::start_gateway().map_err(|error| error.to_string())?;
     owner.observe_start(&snapshot);
     Ok(snapshot)
@@ -58,6 +82,9 @@ fn gateway_runtime_start(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapsh
 
 #[tauri::command]
 fn gateway_runtime_stop_if_owned(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapshot, String> {
+    if let Some(url) = owner.remote_url() {
+        return Ok(gateway_lifecycle::status_remote(&url));
+    }
     if !owner.started_by_shell.load(Ordering::SeqCst) {
         return gateway_lifecycle::status_gateway().map_err(|error| error.to_string());
     }
@@ -68,17 +95,26 @@ fn gateway_runtime_stop_if_owned(owner: State<'_, RuntimeOwner>) -> Result<Runti
 }
 
 #[tauri::command]
-fn browser_runtime_status() -> Result<RuntimeSnapshot, String> {
+fn browser_runtime_status(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapshot, String> {
+    if let Some(url) = owner.remote_url() {
+        return Ok(gateway_lifecycle::status_remote(&url));
+    }
     gateway_lifecycle::status_browser().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn browser_runtime_start() -> Result<RuntimeSnapshot, String> {
+fn browser_runtime_start(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapshot, String> {
+    if let Some(url) = owner.remote_url() {
+        return Ok(gateway_lifecycle::status_remote(&url));
+    }
     gateway_lifecycle::start_browser().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn browser_runtime_stop_if_owned() -> Result<RuntimeSnapshot, String> {
+fn browser_runtime_stop_if_owned(owner: State<'_, RuntimeOwner>) -> Result<RuntimeSnapshot, String> {
+    if let Some(url) = owner.remote_url() {
+        return Ok(gateway_lifecycle::status_remote(&url));
+    }
     // Early impl: allow stop; refine ownership later like gateway
     gateway_lifecycle::stop_browser_if_owned().map_err(|error| error.to_string())
 }
@@ -88,14 +124,37 @@ pub fn run() {
     tauri::Builder::default()
         .manage(RuntimeOwner::default())
         .setup(|app| {
+            // VOICEFACTORY_REMOTE_GATEWAY_URL set => this shell is the UI half of a
+            // 2-machine split (docs/design/08 Phase D.4): point the window at that
+            // backend instead of auto-starting a local gateway/browser that would
+            // otherwise sit next to the real one, doing nothing useful.
+            let remote_url = std::env::var("VOICEFACTORY_REMOTE_GATEWAY_URL")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+
+            // The window's URL used to be static in tauri.conf.json, which only
+            // ever worked for local mode - it's built here instead so remote mode
+            // can point it at the backend before the first navigation happens.
+            let target_url = remote_url.clone().unwrap_or_else(|| DEFAULT_LOCAL_URL.to_string());
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(target_url.parse()?))
+                .title("VoiceFactory")
+                .inner_size(1180.0, 780.0)
+                .min_inner_size(960.0, 640.0)
+                .build()?;
+
             let owner = app.state::<RuntimeOwner>();
-            match gateway_lifecycle::start_gateway() {
-                Ok(snapshot) => owner.observe_start(&snapshot),
-                Err(error) => owner.record_start_error(Some(error.to_string())),
+            if let Some(url) = remote_url {
+                owner.set_remote(url);
+            } else {
+                match gateway_lifecycle::start_gateway() {
+                    Ok(snapshot) => owner.observe_start(&snapshot),
+                    Err(error) => owner.record_start_error(Some(error.to_string())),
+                }
+                // Parallel browser launch for easier Brave test (per plan in M2_004/M2_005)
+                // Does not block if fails (degraded in gateway health)
+                let _ = gateway_lifecycle::start_browser();
             }
-            // Parallel browser launch for easier Brave test (per plan in M2_004/M2_005)
-            // Does not block if fails (degraded in gateway health)
-            let _ = gateway_lifecycle::start_browser();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

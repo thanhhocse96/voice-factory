@@ -18,20 +18,20 @@ test('VbeePreviewProtocolRecorder validates expected preview sequence', () => {
   assert.equal(result.missing.length, 0);
 });
 
-test('VbeePreviewProtocolRecorder detects missing GET_REMAINING_PREVIEW', () => {
+test('VbeePreviewProtocolRecorder detects a missing SYNTHESIS SUCCESS frame', () => {
   const recorder = new VbeePreviewProtocolRecorder();
 
-  recorder.record({ direction: 'server', type: 'INIT' });
   recorder.record({ direction: 'client', type: 'INIT' });
+  recorder.record({ direction: 'server', type: 'INIT' });
   recorder.record({ direction: 'client', type: 'SYNTHESIS' });
   recorder.record({ direction: 'server', type: 'SYNTHESIS', status: 'IN_PROGRESS' });
-  recorder.record({ direction: 'server', type: 'SYNTHESIS', status: 'SUCCESS' });
 
   const result = recorder.verifyExpectedPreviewSequence();
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.missing.at(-1), {
     direction: 'server',
-    type: 'GET_REMAINING_PREVIEW'
+    type: 'SYNTHESIS',
+    status: 'SUCCESS'
   });
 });

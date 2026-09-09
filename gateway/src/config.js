@@ -22,10 +22,16 @@ export function loadConfig() {
     },
     runtime: {
       browserAdapter: process.env.BROWSER_ADAPTER || 'playwright-cdp',
-      vbeeAdapter: process.env.VBEE_ADAPTER || 'fake',
+      vbeeAdapter: process.env.VBEE_ADAPTER || 'fake', // 'fake' | 'vbee-preview' (docs/design/08 Phase C)
       delayPolicy: process.env.DELAY_POLICY || 'none',
       browserCdpUrl: process.env.CDP_URL || 'http://127.0.0.1:9222',
       browserHealthTimeoutMs: intFromEnv('BROWSER_HEALTH_TIMEOUT_MS', 800)
+    },
+    // Kept out of `runtime` on purpose: /health echoes `runtime` wholesale, and
+    // authToken must never appear in an unauthenticated response (docs/design/08 Phase D).
+    security: {
+      authToken: process.env.GATEWAY_AUTH_TOKEN || '', // '' = auth off (1-machine default)
+      corsOrigin: process.env.CORS_ORIGIN || '' // '' = no CORS headers (same-origin default)
     }
   };
 }

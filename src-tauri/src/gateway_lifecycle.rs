@@ -64,6 +64,65 @@ pub fn stop_browser_if_owned() -> Result<RuntimeSnapshot, LifecycleError> {
     run_browser_lifecycle("stop")
 }
 
+// Unlike run_lifecycle/run_browser_lifecycle, this never returns Err: an
+// unreachable backend is a normal, expected state for a remote machine (network
+// hiccup, backend not started yet) and becomes `degraded: true`, not a failed
+// command - mirrors gateway-lifecycle.mjs's own "status" contract, which already
+// reports `ok:false` with a clean exit rather than failing outright.
+pub fn status_remote(base_url: &str) -> RuntimeSnapshot {
+    let health_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let body = ureq::get(&health_url)
+        .timeout(std::time::Duration::from_millis(1500))
+        .call()
+        .ok()
+        .and_then(|response| response.into_string().ok());
+
+    match body {
+        Some(text) => remote_snapshot_from_health_json(base_url, &text),
+        None => RuntimeSnapshot {
+            ok: false,
+            action: Some("remote".to_string()),
+            url: base_url.to_string(),
+            port_open: Some(false),
+            owned_by_shell: false,
+            degraded: true,
+            health: None,
+            state: None,
+            error: Some(format!("unable to reach {health_url}")),
+        },
+    }
+}
+
+fn remote_snapshot_from_health_json(base_url: &str, text: &str) -> RuntimeSnapshot {
+    let health: Option<Value> = serde_json::from_str(text).ok();
+    let ok = health
+        .as_ref()
+        .and_then(|h| h.get("ok"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let degraded = health
+        .as_ref()
+        .and_then(|h| h.get("degraded"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    RuntimeSnapshot {
+        ok,
+        action: Some("remote".to_string()),
+        url: base_url.to_string(),
+        port_open: Some(true),
+        owned_by_shell: false,
+        degraded: !ok || degraded,
+        health,
+        state: None,
+        error: if ok {
+            None
+        } else {
+            Some("remote gateway reported not-ok".to_string())
+        },
+    }
+}
+
 fn run_browser_lifecycle(action: &str) -> Result<RuntimeSnapshot, LifecycleError> {
     let root = project_root()?;
     let script = root.join("scripts").join("browser-lifecycle.mjs");
@@ -169,7 +228,7 @@ fn snapshot_from_json(output: &str) -> Result<RuntimeSnapshot, LifecycleError> {
 
 #[cfg(test)]
 mod tests {
-    use super::snapshot_from_json;
+    use super::{remote_snapshot_from_health_json, snapshot_from_json};
 
     #[test]
     fn marks_started_gateway_as_owned_by_shell() {
@@ -199,6 +258,35 @@ mod tests {
         )
         .expect("snapshot");
 
+        assert!(snapshot.degraded);
+    }
+
+    #[test]
+    fn remote_snapshot_marks_gateway_as_not_owned_by_shell() {
+        let snapshot = remote_snapshot_from_health_json(
+            "http://100.64.0.1:3000",
+            r#"{"ok":true,"degraded":false}"#,
+        );
+
+        assert!(!snapshot.owned_by_shell);
+        assert!(!snapshot.degraded);
+    }
+
+    #[test]
+    fn remote_snapshot_carries_degraded_health_through() {
+        let snapshot = remote_snapshot_from_health_json(
+            "http://100.64.0.1:3000",
+            r#"{"ok":true,"degraded":true}"#,
+        );
+
+        assert!(snapshot.degraded);
+    }
+
+    #[test]
+    fn remote_snapshot_treats_malformed_body_as_not_ok_without_panicking() {
+        let snapshot = remote_snapshot_from_health_json("http://100.64.0.1:3000", "not json");
+
+        assert!(!snapshot.ok);
         assert!(snapshot.degraded);
     }
 }

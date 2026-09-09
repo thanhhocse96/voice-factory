@@ -11,16 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "VoiceFactory",
-        "width": 1180,
-        "height": 780,
-        "minWidth": 960,
-        "minHeight": 640,
-        "url": "http://127.0.0.1:3000"
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

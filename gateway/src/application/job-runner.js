@@ -33,16 +33,25 @@ export class JobRunner {
     if (this.processing) return;
     this.processing = true;
 
+    let job = null;
     try {
-      const job = this.queueService.pickPendingJob();
+      job = this.queueService.pickPendingJob();
       if (!job) return;
 
-      this.queueService.markStatus(job.id, 'submitting', 'Fake adapter submitting');
-      await this.vbeeAdapter.synthesize(job);
-      this.queueService.markStatus(job.id, 'downloading', 'Fake adapter finalizing local audio');
-      await this.fileService.createFakeAsset(job);
+      this.queueService.markStatus(job.id, 'submitting', 'Submitting to provider');
+      const result = await this.vbeeAdapter.synthesize(job);
+
+      this.queueService.markStatus(job.id, 'downloading', 'Finalizing local audio');
+      if (result && (result.audioUrl || result.localAudioPath)) {
+        await this.fileService.finalizeFromDownload(job, result);
+      } else {
+        await this.fileService.createFakeAsset(job);
+      }
     } catch (error) {
       console.error('[worker] job failed', error);
+      if (job) {
+        this.queueService.markStatus(job.id, 'failed', error.message || 'Job failed');
+      }
     } finally {
       this.processing = false;
     }

@@ -43,13 +43,8 @@ export class PlaywrightCdpAdapter {
     }
   }
 
-  // === For "kết nối vào" (full page automation for Vbee preview) - Phase C ===
-  // M2 is health only (per BROWSER_SERVICE.md and design). Full connect below.
-  // Requires: npm install playwright (confirm/ask human before per AGENTS.md + module TODO)
-  // Then use: const { chromium } = await import('playwright');
-  // this.browser = await chromium.connectOverCDP(this.cdpUrl);
-  // const context = this.browser.contexts()[0] || await this.browser.newContext();
-  // const page = context.pages()[0] || await context.newPage();
+  // === Full page automation (Phase C). Playwright is installed (see design/08 C.1);
+  // connectOverCDP only - this adapter never launches its own browser. ===
 
   async connect() {
     if (this.browser) return this.browser;
@@ -64,7 +59,11 @@ export class PlaywrightCdpAdapter {
   async withPage(fn) {
     const browser = await this.connect();
     const context = browser.contexts()[0] || await browser.newContext();
-    const page = context.pages()[0] || await context.newPage();
+    let page = context.pages()[0];
+    if (!page) {
+      page = await context.newPage();
+      await page.goto('https://studio.vbee.vn');
+    }
     try {
       return await fn(page);
     } finally {

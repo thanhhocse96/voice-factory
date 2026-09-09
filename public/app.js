@@ -3,7 +3,9 @@ const state = {
   jobs: [],
   assets: [],
   selectedAssetId: null,
-  theme: localStorage.getItem('zc-theme') || 'dark'
+  theme: localStorage.getItem('zc-theme') || 'dark',
+  gatewayBaseUrl: localStorage.getItem('vf.gatewayBaseUrl') || '',
+  gatewayToken: localStorage.getItem('vf.gatewayToken') || ''
 };
 
 const el = {
@@ -13,6 +15,10 @@ const el = {
   browserValue: document.querySelector('#browserValue'),
   workerValue: document.querySelector('#workerValue'),
   desktopValue: document.querySelector('#desktopValue'),
+  connectionForm: document.querySelector('#connectionForm'),
+  gatewayBaseUrlInput: document.querySelector('#gatewayBaseUrl'),
+  gatewayTokenInput: document.querySelector('#gatewayToken'),
+  connectionMessage: document.querySelector('#connectionMessage'),
   queueForm: document.querySelector('#queueForm'),
   content: document.querySelector('#content'),
   voiceCode: document.querySelector('#voiceCode'),
@@ -30,19 +36,24 @@ const el = {
   tabPanels: Array.from(document.querySelectorAll('.tab-panel'))
 };
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: {
-      'content-type': 'application/json',
-      ...(options.headers || {})
-    },
-    ...options
-  });
+async function apiFetch(path, options = {}) {
+  const headers = {
+    'content-type': 'application/json',
+    ...(options.headers || {})
+  };
+  if (state.gatewayToken) headers.authorization = `Bearer ${state.gatewayToken}`;
+
+  const response = await fetch(`${state.gatewayBaseUrl}${path}`, { ...options, headers });
   const data = await response.json();
   if (!response.ok || data.ok === false) {
     throw new Error(data.error || `Request failed: ${response.status}`);
   }
   return data;
+}
+
+function audioSrc(filename) {
+  const url = `${state.gatewayBaseUrl}/api/audio/${encodeURIComponent(filename)}`;
+  return state.gatewayToken ? `${url}?token=${encodeURIComponent(state.gatewayToken)}` : url;
 }
 
 function setMessage(message, tone = 'muted') {
@@ -74,7 +85,7 @@ function renderQueue() {
   el.queueRows.innerHTML = state.jobs.map((job) => `
     <tr>
       <td><span class="badge ${escapeHtml(job.status)}">${escapeHtml(job.status)}</span></td>
-      <td>${escapeHtml(trimText(job.content, 86))}</td>
+      <td><span class="cell-truncate">${escapeHtml(trimText(job.content, 86))}</span></td>
       <td>${escapeHtml(job.voice_code)}</td>
       <td>${escapeHtml(job.created_at)}</td>
     </tr>
@@ -125,7 +136,7 @@ function renderAssetDetail() {
   el.assetDetail.innerHTML = `
     <div class="detail-filename">${escapeHtml(asset.filename)}</div>
     <div class="detail-text">${escapeHtml(asset.content || '')}</div>
-    <audio controls preload="none" src="/api/audio/${encodeURIComponent(asset.filename)}"></audio>
+    <audio controls preload="none" src="${audioSrc(asset.filename)}"></audio>
     <button class="primary" type="button" disabled>Add to Edit</button>
   `;
 }
@@ -144,7 +155,7 @@ function renderEditAssetBin() {
 
 async function refreshHealth() {
   try {
-    state.health = await api('/health');
+    state.health = await apiFetch('/health');
   } catch {
     state.health = null;
   }
@@ -164,13 +175,13 @@ async function refreshDesktopRuntime() {
 }
 
 async function refreshQueue() {
-  const data = await api('/api/queue');
+  const data = await apiFetch('/api/queue');
   state.jobs = data.jobs || [];
   renderQueue();
 }
 
 async function refreshAssets() {
-  const data = await api('/api/assets');
+  const data = await apiFetch('/api/assets');
   state.assets = data.assets || [];
   renderAssets();
 }
@@ -186,7 +197,7 @@ async function addQueue(event) {
   setMessage('Adding job...');
 
   try {
-    await api('/api/queue', {
+    await apiFetch('/api/queue', {
       method: 'POST',
       body: JSON.stringify({
         content: el.content.value,
@@ -201,6 +212,18 @@ async function addQueue(event) {
   } catch (error) {
     setMessage(error.message, 'error');
   }
+}
+
+function saveConnectionSettings(event) {
+  event.preventDefault();
+  state.gatewayBaseUrl = el.gatewayBaseUrlInput.value.trim().replace(/\/+$/, '');
+  state.gatewayToken = el.gatewayTokenInput.value.trim();
+  localStorage.setItem('vf.gatewayBaseUrl', state.gatewayBaseUrl);
+  localStorage.setItem('vf.gatewayToken', state.gatewayToken);
+  el.connectionMessage.textContent = 'Saved.';
+  refreshAll().catch((error) => {
+    el.connectionMessage.textContent = error.message;
+  });
 }
 
 function trimText(value, max) {
@@ -233,6 +256,10 @@ function applyTheme(theme) {
   localStorage.setItem('zc-theme', theme);
   el.themeToggle.textContent = theme === 'dark' ? 'Light' : 'Dark';
 }
+
+el.connectionForm.addEventListener('submit', saveConnectionSettings);
+el.gatewayBaseUrlInput.value = state.gatewayBaseUrl;
+el.gatewayTokenInput.value = state.gatewayToken;
 
 el.queueForm.addEventListener('submit', addQueue);
 el.refreshQueue.addEventListener('click', refreshQueue);

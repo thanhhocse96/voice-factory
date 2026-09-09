@@ -176,7 +176,7 @@ h2 {
   display: grid;
   grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .tab-panel {
@@ -190,7 +190,7 @@ h2 {
 .asset-workspace {
   grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .edit-workspace {
@@ -263,11 +263,37 @@ input:focus {
   align-items: center;
   gap: 8px;
   min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-3);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.check:has(input:checked) {
+  border-color: var(--accent);
+  background: rgba(19, 124, 114, 0.14);
+  box-shadow: 0 0 0 3px rgba(19, 124, 114, 0.14);
+}
+
+.check:has(input:checked) .check-label {
+  color: var(--accent-strong);
 }
 
 .check input {
   width: 18px;
   height: 18px;
+}
+
+.check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.check-icon {
+  flex-shrink: 0;
 }
 
 button {
@@ -276,6 +302,11 @@ button {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 800;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .primary {
@@ -310,8 +341,8 @@ button {
   overflow: hidden;
 }
 
-.panel + .panel {
-  margin-top: 16px;
+.full-width {
+  grid-column: 1 / -1;
 }
 
 .panel-head {
@@ -346,7 +377,15 @@ td {
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
+}
+
+.cell-truncate {
+  display: block;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 th {

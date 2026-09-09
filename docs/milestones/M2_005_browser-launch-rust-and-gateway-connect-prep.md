@@ -97,3 +97,100 @@ All per DOCUMENTATION_WORKFLOW (Mermaid first, etc.) and M2 acceptance (no break
 This M2_005 + updates to M2_004/README serve as evidence of the plan + started work. All changes keep M2 invariants and support the prioritized Brave test before full integration. 
 
 (Previous M2_004 already had the high-level plan and auth/browser clarifications from earlier tasks.)
+
+**WSL + Windows Brave control note (user question 2026-06-21)**:
+- Node server (WSL/Linux) điều khiển Brave (Windows GUI app) **có được**, qua 2 lớp:
+  1. Launch: script dùng `powershell.exe Start-Process` (đã update từ cmd start cho ổn định hơn trên WSL).
+  2. Control: CDP (health fetch + future connectOverCDP) từ WSL đến Windows port 9222.
+- Thực tế trong project: CDP_URL=http://127.0.0.1:9222 hoạt động từ WSL (xác nhận trong .local/M2_LIVE_VBEE_CDP_TEST.md và code default). WSL2 thường forward localhost đến Windows listener.
+- Vấn đề thường gặp:
+  - Launch GUI từ WSL: quoting path, window focus, UAC, hoặc `start` command không ổn.
+  - Networking: nếu 127.0.0.1 fail, thử IP Windows (`cat /etc/resolv.conf | grep nameserver`) hoặc hostname.local.
+  - Headed: phải visible + user login thủ công (thiết kế "browser thật").
+- Script đã được cải thiện (toWindowsPath + powershell).
+- Khuyến nghị:
+  - Test: `node scripts/browser-lifecycle.mjs start` (với CDP_URL).
+  - Nếu launch khó: dùng manual protocol (user start Brave trên Windows host bằng .bat), Node chỉ connect CDP điều khiển (đơn giản, ít lỗi hơn).
+  - Tauri build Windows native: launch trực tiếp từ Rust sẽ mượt.
+- Xem thêm: design/01 (start-brave.bat + WSL note), .local/ENVIRONMENT, 04_migration (WSL2 networking rủi ro).
+
+## Test Results (2026-07-08)
+
+**Unit tests (npm run test:m2)**:
+- All 5 tests passed:
+  - BrowserService returns unavailable when adapter is missing.
+  - PlaywrightCdpAdapter reports available CDP version endpoint.
+  - PlaywrightCdpAdapter degrades when CDP fetch fails.
+  - VbeePreviewProtocolRecorder validates expected preview sequence.
+  - VbeePreviewProtocolRecorder detects missing GET_REMAINING_PREVIEW.
+- Command: `npm run test:m2`
+- Duration: ~192ms
+- Covers: health degraded states, CDP adapter logic, protocol recorder for M2 harness.
+
+**Simulated gateway run (mimicking WSL foreground test)**:
+- Started gateway with `HOST=127.0.0.1 PORT=3456 npm run dev` (timeout 5s).
+- Health check (`curl http://127.0.0.1:3456/health`):
+  ```json
+  {
+    "ok": true,
+    "gateway": "running",
+    "db": "ok",
+    "browserCdp": "unavailable",
+    "browser": {
+      "status": "unavailable",
+      "degraded": true,
+      "url": "http://127.0.0.1:9222",
+      "error": "fetch failed"
+    },
+    "vbeeSession": "fake",
+    "worker": "running",
+    "degraded": true,
+    "runtime": { ... }
+  }
+  ```
+- Expected: Gateway stays alive, browser degraded (no real CDP/Brave), fake worker runs.
+- Matches M2: health reports without crashing, fake default.
+
+**Script tests**:
+- `node scripts/browser-lifecycle.mjs status`: Ran, reported portOpen=false, error="fetch failed" (expected, no browser).
+- `node scripts/live-cdp-vbee-check.mjs`: Ran, wrote sanitized report to .local/runtime/, cdp.ok=false (no CDP).
+- Launch script syntax: `node --check` passed.
+- WSL launch logic: Updated to use powershell.exe Start-Process for better WSL->Windows Brave launch.
+
+**Rust/Tauri**:
+- cargo check (background): Completed exit 0, "Finished `dev` profile ... in 3m 08s".
+- Confirms browser lifecycle additions compile.
+
+**Manual test protocol followed**:
+- Used WSL-style foreground simulation.
+- No hidden/background Windows processes spawned.
+- For real test: User must run in WSL:
+  ```bash
+  cd /mnt/d/Github/ZeroClaw-Vbee-Automate
+  source ~/.nvm/nvm.sh
+  nvm use 24
+  HOST=0.0.0.0 npm run dev
+  ```
+- Then test browser launch/control per .local/M2_LIVE_VBEE_CDP_TEST.md (manual Brave start recommended for stability).
+
+**Verification commands**:
+```bash
+npm run test:m2
+node --check scripts/browser-lifecycle.mjs
+node scripts/browser-lifecycle.mjs status
+node scripts/live-cdp-vbee-check.mjs
+python3 ../context-mapping/cli.py check-consistency .
+# For full: cargo check (source cargo env), manual WSL run as above.
+```
+
+**Result**: Current M2 browser health + harness + launch prep verified as working (degrades gracefully, tests pass, scripts functional). WSL control of Windows Brave via CDP/launch script confirmed in design and code (with noted caveats for real env).
+
+**Known limits / residual risk**:
+- Full real Brave + Vbee login not tested here (requires user Windows env + manual protocol).
+- Launch from WSL can be flaky (use manual Brave start if needed).
+- playwright not installed yet (for full connect); health works without it.
+- M2 acceptance marked complete in MILESTONES, but real Vbee flows are out of scope.
+
+**Move on**: This test note completes the browser launch prep slice for M2. Next actions per plan (e.g., full gateway connect after playwright + user confirmation, or M3 prep). Update M2_005 as evidence. Consistency clean. README updated.
+
+This documents the test part per DOCUMENTATION_WORKFLOW.

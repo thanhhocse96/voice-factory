@@ -1,11 +1,19 @@
+// Confirmed against two independent live captures from studio.vbee.vn (2026-09-09):
+// - The client opens the connection and sends INIT (carrying accessToken) first;
+//   the server INIT is the ack, not an unprompted hello. Both captures agreed on
+//   this order, opposite of what this list originally assumed.
+// - GET_REMAINING_PREVIEW is a leftover-quota check the UI fires *after* the
+//   audio_link has already arrived - it is unrelated to audio delivery, and
+//   capturePreviewAudioUrl (vbee-preview.js) stops listening as soon as it has the
+//   SUCCESS frame, so those frames are never observed by design. Intentionally not
+//   part of the expected sequence below - including them would make every real run
+//   "incomplete".
 const EXPECTED_PREVIEW_SEQUENCE = [
-  { direction: 'server', type: 'INIT' },
   { direction: 'client', type: 'INIT' },
+  { direction: 'server', type: 'INIT' },
   { direction: 'client', type: 'SYNTHESIS' },
   { direction: 'server', type: 'SYNTHESIS', status: 'IN_PROGRESS' },
-  { direction: 'server', type: 'SYNTHESIS', status: 'SUCCESS' },
-  { direction: 'client', type: 'GET_REMAINING_PREVIEW' },
-  { direction: 'server', type: 'GET_REMAINING_PREVIEW' }
+  { direction: 'server', type: 'SYNTHESIS', status: 'SUCCESS' }
 ];
 
 export class VbeePreviewProtocolRecorder {

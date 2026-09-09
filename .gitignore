@@ -2,6 +2,7 @@
 .local/
 node_modules/
 npm-debug.log*
+gw.log
 
 src-tauri/target/
 src-tauri/gen/

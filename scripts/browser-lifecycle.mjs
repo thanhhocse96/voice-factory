@@ -8,7 +8,7 @@
  *
  * Cross-platform notes:
  * - On Windows: spawns brave.exe directly.
- * - On WSL: attempts to launch via Windows host (cmd.exe or powershell).
+ * - On WSL: attempts to launch via Windows host (powershell.exe Start-Process).
  * - Profile in .local/runtime/brave-profile or env BROWSER_PROFILE_DIR.
  * - Default CDP 9222, opens to studio.vbee.vn for login.
  *
@@ -107,7 +107,7 @@ async function start() {
     spawnCmd = browserExe;
     spawnArgs = baseArgs;
   } else {
-    spawnCmd = 'cmd.exe';
+    spawnCmd = 'powershell.exe';
     spawnArgs = getLaunchArgs(browserExe, baseArgs);
   }
 
@@ -265,16 +265,27 @@ function getBrowserCommand() {
   return config.browserPath;
 }
 
+function toWindowsPath(p) {
+  if (process.platform === 'win32') return p;
+  // Convert /mnt/c/foo -> C:\foo
+  return p
+    .replace(/^\/mnt\/([a-z])/i, (_, d) => d.toUpperCase() + ':')
+    .replace(/\//g, '\\');
+}
+
 function getLaunchArgs(exePath, args) {
   if (process.platform === 'win32') {
     return [exePath, ...args];
   }
-  // WSL -> Windows host
-  // Use cmd /c start "" "path" flags...
-  // Escape for cmd
-  const quoted = `"${exePath}"`;
-  const allArgs = [quoted, ...args].join(' ');
-  return ['/c', 'start', '""', allArgs];
+  // WSL -> Windows: use PowerShell Start-Process (more reliable for GUI apps than 'start')
+  const winExe = toWindowsPath(exePath);
+  const argList = args.map(a => `"${a.replace(/"/g, '""')}"`).join(',');
+  // Build command string for powershell -Command
+  return [
+    '-NoProfile',
+    '-Command',
+    `Start-Process -FilePath "${winExe}" -ArgumentList ${argList} -WindowStyle Normal`
+  ];
 }
 
 function sleep(ms) {
