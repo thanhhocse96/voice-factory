@@ -133,19 +133,19 @@ pub fn run() {
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
 
-            // The window's URL used to be static in tauri.conf.json, which only
-            // ever worked for local mode - it's built here instead so remote mode
-            // can point it at the backend before the first navigation happens.
-            let target_url = remote_url.clone().unwrap_or_else(|| DEFAULT_LOCAL_URL.to_string());
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(target_url.parse()?))
-                .title("VoiceFactory")
-                .inner_size(1180.0, 780.0)
-                .min_inner_size(960.0, 640.0)
-                .build()?;
-
+            // Local mode: start the Gateway (and wait for it to become healthy - this
+            // call blocks, per gateway_lifecycle's own startup-timeout polling) BEFORE
+            // the window exists at all. The window used to be created first, which
+            // meant it always tried to load a Gateway that could not possibly be up
+            // yet - a real, live-confirmed race (docs/design/10, M2_016/M2_017): every
+            // cold start briefly showed the webview's native "connection refused" page
+            // even on a fully successful run, since nothing ever reloaded it once the
+            // Gateway did come up. Remote mode is unaffected - there is nothing local
+            // to wait for, and this shell can't fix a remote backend's own readiness.
             let owner = app.state::<RuntimeOwner>();
-            if let Some(url) = remote_url {
-                owner.set_remote(url);
+            let target_url = if let Some(url) = remote_url {
+                owner.set_remote(url.clone());
+                url
             } else {
                 match gateway_lifecycle::start_gateway() {
                     Ok(snapshot) => owner.observe_start(&snapshot),
@@ -154,7 +154,15 @@ pub fn run() {
                 // Parallel browser launch for easier Brave test (per plan in M2_004/M2_005)
                 // Does not block if fails (degraded in gateway health)
                 let _ = gateway_lifecycle::start_browser();
-            }
+                DEFAULT_LOCAL_URL.to_string()
+            };
+
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(target_url.parse()?))
+                .title("VoiceFactory")
+                .inner_size(1180.0, 780.0)
+                .min_inner_size(960.0, 640.0)
+                .build()?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
