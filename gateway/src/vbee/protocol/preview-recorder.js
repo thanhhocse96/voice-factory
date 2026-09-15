@@ -4,7 +4,7 @@
 //   this order, opposite of what this list originally assumed.
 // - GET_REMAINING_PREVIEW is a leftover-quota check the UI fires *after* the
 //   audio_link has already arrived - it is unrelated to audio delivery, and
-//   capturePreviewAudioUrl (vbee-preview.js) stops listening as soon as it has the
+//   requestPreviewSynthesis (vbee-preview.js) stops as soon as it has the
 //   SUCCESS frame, so those frames are never observed by design. Intentionally not
 //   part of the expected sequence below - including them would make every real run
 //   "incomplete".

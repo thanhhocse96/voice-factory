@@ -2,21 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { VbeePreviewAdapter, redactSensitiveFields } from './vbee-preview.js';
 
-// Selectors/URLs resolved from a live studio.vbee.vn session (see vbee-preview.js).
-// Hardcoded here (not imported) so a drift in the source constants fails this test -
-// that is the point: it locks the real contract we verified live.
-const EDITOR_SELECTOR = '#editor-wrapper [contenteditable="true"]';
 const PREVIEW_BUTTON_SELECTOR = '#try-listening';
+const RESTORE_DIALOG_SELECTOR = '[data-id="reload-prev-session"]';
 const SYNTHESIS_WS_URL = 'wss://vbee.vn/api/v1/synthesis/demo';
+const VBEE_STUDIO_URL_STUB = 'https://studio.vbee.vn/';
 
 function noopSteps(overrides = {}) {
   return {
+    installTokenCapture: async () => {},
     ensureStudioPage: async () => {},
     extractSessionToken: async () => {},
-    locateEditor: async () => 'fake-editor-handle',
-    injectPreviewText: async () => {},
-    triggerPreview: async () => {},
-    capturePreviewAudioUrl: async () => ({
+    requestPreviewSynthesis: async () => ({
       audioUrl: 'https://cdn.example/preview.mp3',
       requestId: 'req-123',
       format: 'mp3',
@@ -37,63 +33,14 @@ function fakeBrowserService(page) {
   };
 }
 
-// Minimal duck-typed event emitter matching the on/off/emit surface Playwright's
-// Page and WebSocket objects expose - no real Playwright involved, matching this
-// repo's constructor-injection test convention.
-function fakeEmitter() {
-  const listeners = new Map();
-  return {
-    on(event, handler) {
-      if (!listeners.has(event)) listeners.set(event, []);
-      listeners.get(event).push(handler);
-    },
-    off(event, handler) {
-      const arr = listeners.get(event);
-      if (!arr) return;
-      const idx = arr.indexOf(handler);
-      if (idx !== -1) arr.splice(idx, 1);
-    },
-    emit(event, payload) {
-      for (const handler of (listeners.get(event) || [])) handler(payload);
-    },
-    listenerCount(event) {
-      return (listeners.get(event) || []).length;
-    }
-  };
-}
-
-function fakeWebSocket(url) {
-  const emitter = fakeEmitter();
-  return {
-    url: () => url,
-    on: emitter.on,
-    off: emitter.off,
-    emitFrame(event, data) {
-      emitter.emit(event, { payload: JSON.stringify(data) });
-    }
-  };
-}
-
-const RESTORE_DIALOG_SELECTOR = '[data-id="reload-prev-session"]';
-
 function fakePlaywrightPage({
   url = 'https://studio.vbee.vn/studio/text-to-speech',
   hasPreviewButton = true,
   hasRestoreDialog = false,
-  hasEditor = true
+  hasToken = true,
+  evaluateImpl = null
 } = {}) {
   const calls = [];
-  const emitter = fakeEmitter();
-  let resolveWebSocketArmed;
-  const whenWebSocketArmed = new Promise((resolve) => { resolveWebSocketArmed = resolve; });
-
-  const editorLocator = {
-    count: async () => (hasEditor ? 1 : 0),
-    waitFor: async (opts) => { calls.push(['editor.waitFor', opts]); },
-    click: async () => { calls.push(['editor.click']); },
-    pressSequentially: async (text, opts) => { calls.push(['editor.pressSequentially', text, opts]); },
-    page: () => page
-  };
 
   const previewButtonLocator = {
     count: async () => (hasPreviewButton ? 1 : 0),
@@ -115,28 +62,36 @@ function fakePlaywrightPage({
     goto: async (target) => { calls.push(['goto', target]); },
     reload: async () => { calls.push(['reload']); },
     waitForTimeout: async (ms) => { calls.push(['waitForTimeout', ms]); },
-    keyboard: {
-      press: async (key) => { calls.push(['keyboard.press', key]); }
+    addInitScript: async () => { calls.push(['addInitScript']); },
+    waitForFunction: async (fn, opts) => {
+      calls.push(['waitForFunction', opts]);
+      if (!hasToken) throw new Error('TimeoutError: token not captured');
+    },
+    evaluate: async (fn, arg) => {
+      calls.push(['evaluate', arg]);
+      if (evaluateImpl) return evaluateImpl(fn, arg);
+      return {
+        ok: true,
+        audioUrl: 'https://cdn.example/audio.mp3',
+        requestId: 'req-xyz',
+        frames: [
+          { direction: 'client', type: 'INIT', payload: { type: 'INIT', accessToken: '[REDACTED]' } },
+          { direction: 'server', type: 'INIT', status: 1, payload: { type: 'INIT', status: 1 } },
+          { direction: 'client', type: 'SYNTHESIS', payload: { type: 'SYNTHESIS', accessToken: '[REDACTED]', payload: { text: arg.content } } },
+          { direction: 'server', type: 'SYNTHESIS', status: 'IN_PROGRESS', payload: { type: 'SYNTHESIS', result: { status: 'IN_PROGRESS' } } },
+          { direction: 'server', type: 'SYNTHESIS', status: 'SUCCESS', payload: { type: 'SYNTHESIS', result: { status: 'SUCCESS', audio_link: 'https://cdn.example/audio.mp3', request_id: 'req-xyz' } } }
+        ]
+      };
     },
     locator: (selector) => {
       calls.push(['locator', selector]);
-      if (selector === EDITOR_SELECTOR) return editorLocator;
       if (selector === PREVIEW_BUTTON_SELECTOR) return previewButtonLocator;
       if (selector === RESTORE_DIALOG_SELECTOR) return restoreDialogLocator;
       throw new Error(`unexpected selector: ${selector}`);
-    },
-    on(event, handler) {
-      emitter.on(event, handler);
-      if (event === 'websocket') resolveWebSocketArmed();
-    },
-    off: emitter.off,
-    emit: emitter.emit,
-    whenWebSocketArmed
+    }
   };
   return page;
 }
-
-const VBEE_STUDIO_URL_STUB = 'https://studio.vbee.vn/';
 
 test('VbeePreviewAdapter maps a successful preview flow to the normalized shape', async () => {
   const browserService = fakeBrowserService();
@@ -164,20 +119,42 @@ test('VbeePreviewAdapter propagates a step failure', async () => {
     browserService,
     actionDelayMs: 0,
     ...noopSteps({
-      locateEditor: async () => {
-        throw new Error('editor not found');
+      extractSessionToken: async () => {
+        throw new Error('session token missing');
       }
     })
   });
 
   await assert.rejects(
     () => adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' }),
-    /editor not found/
+    /session token missing/
   );
 });
 
 test('VbeePreviewAdapter requires a browserService', () => {
   assert.throws(() => new VbeePreviewAdapter({}), /browserService/);
+});
+
+test('default installTokenCapture registers addInitScript before reload', async () => {
+  const page = fakePlaywrightPage({ url: 'https://studio.vbee.vn/studio/text-to-speech' });
+  const browserService = fakeBrowserService(page);
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    actionDelayMs: 0,
+    ...noopSteps({
+      installTokenCapture: undefined,
+      ensureStudioPage: undefined
+    })
+  });
+
+  await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
+
+  const names = page.calls.map(([name]) => name);
+  const installIdx = names.indexOf('addInitScript');
+  const reloadIdx = names.indexOf('reload');
+  assert.ok(installIdx !== -1, 'addInitScript should be called');
+  assert.ok(reloadIdx !== -1, 'reload should be called');
+  assert.ok(installIdx < reloadIdx, 'token hook must be installed before reload');
 });
 
 test('default ensureStudioPage reloads (not navigates) when already on the studio page', async () => {
@@ -208,10 +185,9 @@ test('default ensureStudioPage navigates when not yet on the studio page', async
 
   assert.ok(page.calls.some(([name, target]) => name === 'goto' && target === 'https://studio.vbee.vn'));
   assert.ok(!page.calls.some(([name]) => name === 'reload'));
-  assert.ok(!page.calls.some(([name]) => name === 'editor.click'), 'nothing to clear on a fresh navigation');
 });
 
-test('default ensureStudioPage clears the editor before reloading, to keep the restore dialog from having anything to offer', async () => {
+test('default ensureStudioPage no longer types into or clears the editor', async () => {
   const page = fakePlaywrightPage({ url: 'https://studio.vbee.vn/studio/text-to-speech' });
   const browserService = fakeBrowserService(page);
   const adapter = new VbeePreviewAdapter({
@@ -222,31 +198,9 @@ test('default ensureStudioPage clears the editor before reloading, to keep the r
 
   await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
 
-  // Order matters: clearing has to happen before reload, not after.
-  const relevantCalls = page.calls.filter(
-    ([name]) => name === 'editor.click' || name === 'keyboard.press' || name === 'reload'
-  );
-  assert.deepEqual(relevantCalls, [
-    ['editor.click'],
-    ['keyboard.press', 'Control+A'],
-    ['keyboard.press', 'Delete'],
-    ['reload']
-  ]);
-});
-
-test('default ensureStudioPage skips clearing when no editor is present before reload', async () => {
-  const page = fakePlaywrightPage({ url: 'https://studio.vbee.vn/studio/text-to-speech', hasEditor: false });
-  const browserService = fakeBrowserService(page);
-  const adapter = new VbeePreviewAdapter({
-    browserService,
-    actionDelayMs: 0,
-    ...noopSteps({ ensureStudioPage: undefined })
-  });
-
-  await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
-
+  assert.ok(!page.calls.some(([name]) => name === 'keyboard.press'));
   assert.ok(!page.calls.some(([name]) => name === 'editor.click'));
-  assert.ok(page.calls.some(([name]) => name === 'reload'), 'reload still proceeds without an editor to clear');
+  assert.ok(!page.calls.some(([name]) => name === 'editor.pressSequentially'));
 });
 
 test('default ensureStudioPage dismisses the restore-content dialog when it appears', async () => {
@@ -277,8 +231,8 @@ test('default ensureStudioPage proceeds normally when no restore dialog appears'
   assert.ok(!page.calls.some(([name]) => name === 'restoreDialog.click'));
 });
 
-test('default extractSessionToken passes when on studio with the preview control present', async () => {
-  const page = fakePlaywrightPage({ url: 'https://studio.vbee.vn/studio/text-to-speech', hasPreviewButton: true });
+test('default extractSessionToken passes when on studio with preview control and captured token', async () => {
+  const page = fakePlaywrightPage({ url: 'https://studio.vbee.vn/studio/text-to-speech', hasPreviewButton: true, hasToken: true });
   const browserService = fakeBrowserService(page);
   const adapter = new VbeePreviewAdapter({
     browserService,
@@ -287,7 +241,7 @@ test('default extractSessionToken passes when on studio with the preview control
   });
 
   await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
-  assert.ok(page.calls.some(([name]) => name === 'locator'));
+  assert.ok(page.calls.some(([name]) => name === 'waitForFunction'));
 });
 
 test('default extractSessionToken rejects when redirected to the login page', async () => {
@@ -320,115 +274,99 @@ test('default extractSessionToken rejects when the preview control is missing', 
   );
 });
 
-test('default locateEditor waits for the Draft.js editor and hands it to injectPreviewText', async () => {
+test('default extractSessionToken rejects when the page never captures a token', async () => {
+  const page = fakePlaywrightPage({ hasToken: false });
+  const browserService = fakeBrowserService(page);
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    actionDelayMs: 0,
+    ...noopSteps({ extractSessionToken: undefined })
+  });
+
+  await assert.rejects(
+    () => adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' }),
+    /token was not captured/
+  );
+});
+
+test('default requestPreviewSynthesis drives the WS round trip in page.evaluate and never sends the token as an evaluate argument', async () => {
   const page = fakePlaywrightPage();
   const browserService = fakeBrowserService(page);
-  let receivedEditor = null;
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    actionDelayMs: 0,
+    ...noopSteps({ requestPreviewSynthesis: undefined })
+  });
+
+  const result = await adapter.synthesize({
+    id: 'job-1',
+    voice_code: 'sg_female_tuongvy_call_44k-fhg',
+    speed: 1.05,
+    content: 'xin chào'
+  });
+
+  const evaluateCall = page.calls.find(([name]) => name === 'evaluate');
+  assert.ok(evaluateCall, 'page.evaluate should run the synthesis request');
+  assert.deepEqual(evaluateCall[1], {
+    content: 'xin chào',
+    voiceCode: 'sg_female_tuongvy_call_44k-fhg',
+    speed: 1.05,
+    wsUrl: SYNTHESIS_WS_URL,
+    timeoutMs: 30000
+  });
+  assert.equal(JSON.stringify(evaluateCall[1]).includes('accessToken'), false);
+  assert.equal(JSON.stringify(evaluateCall[1]).includes('Bearer'), false);
+  assert.equal(result.audioUrl, 'https://cdn.example/audio.mp3');
+  assert.equal(result.requestId, 'req-xyz');
+  assert.deepEqual(result.metadata.protocolWarnings, []);
+});
+
+test('default requestPreviewSynthesis does not click the editor or type keystrokes', async () => {
+  const page = fakePlaywrightPage();
+  const browserService = fakeBrowserService(page);
   const adapter = new VbeePreviewAdapter({
     browserService,
     actionDelayMs: 0,
     ...noopSteps({
-      locateEditor: undefined,
-      injectPreviewText: async (editor) => { receivedEditor = editor; }
+      installTokenCapture: undefined,
+      ensureStudioPage: undefined,
+      extractSessionToken: undefined,
+      requestPreviewSynthesis: undefined
     })
   });
 
-  await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
-
-  assert.deepEqual(page.calls[0], ['locator', EDITOR_SELECTOR]);
-  assert.ok(page.calls.some(([name]) => name === 'editor.waitFor'));
-  assert.ok(receivedEditor, 'editor handle should be passed through to injectPreviewText');
-});
-
-test('default injectPreviewText clears the editor then types the content as real keystrokes', async () => {
-  const page = fakePlaywrightPage();
-  const browserService = fakeBrowserService(page);
-  const adapter = new VbeePreviewAdapter({
-    browserService,
-    actionDelayMs: 0,
-    ...noopSteps({ locateEditor: undefined, injectPreviewText: undefined })
-  });
-
-  await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'xin chào' });
+  await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'một đoạn văn dài' });
 
   const names = page.calls.map(([name]) => name);
-  assert.ok(names.includes('editor.click'));
-  assert.deepEqual(
-    page.calls.filter(([name]) => name === 'keyboard.press').map((c) => c[1]),
-    ['Control+A', 'Delete']
-  );
-  const pressSequentially = page.calls.find(([name]) => name === 'editor.pressSequentially');
-  assert.equal(pressSequentially[1], 'xin chào');
+  assert.ok(!names.includes('editor.pressSequentially'));
+  assert.ok(!names.includes('keyboard.press'));
+  assert.ok(!names.includes('previewButton.click'));
+  assert.ok(names.includes('evaluate'));
 });
 
-test('default triggerPreview selects the editor content, then clicks the preview button', async () => {
-  const page = fakePlaywrightPage();
+test('default requestPreviewSynthesis maps a failed page-context round trip to a job error without token-shaped fields', async () => {
+  const page = fakePlaywrightPage({
+    evaluateImpl: async () => ({
+      ok: false,
+      error: 'synthesis-failed',
+      accessToken: 'super-secret-jwt-should-never-leak'
+    })
+  });
   const browserService = fakeBrowserService(page);
   const adapter = new VbeePreviewAdapter({
     browserService,
     actionDelayMs: 0,
-    ...noopSteps({ triggerPreview: undefined })
+    ...noopSteps({ requestPreviewSynthesis: undefined })
   });
 
-  await adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
-
-  // Order matters: selecting is what enables the button, so it must happen
-  // before the click, not just at some point during the step.
-  const relevantCalls = page.calls.filter(
-    ([name]) => name === 'keyboard.press' || name === 'locator' || name === 'previewButton.click'
+  await assert.rejects(
+    () => adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' }),
+    (error) => {
+      assert.match(error.message, /preview API request failed \(synthesis-failed\)/);
+      assert.equal(error.message.includes('super-secret-jwt-should-never-leak'), false);
+      return true;
+    }
   );
-  assert.deepEqual(relevantCalls, [
-    ['keyboard.press', 'Control+A'],
-    ['locator', PREVIEW_BUTTON_SELECTOR],
-    ['previewButton.click']
-  ]);
-});
-
-// --- capturePreviewAudioUrl: driven by simulated WebSocket frames, shaped exactly
-// like the real traffic captured live from studio.vbee.vn on 2026-09-09. ---
-
-async function runCaptureScenario(page, driveWebSocket) {
-  const browserService = fakeBrowserService(page);
-  const adapter = new VbeePreviewAdapter({
-    browserService,
-    actionDelayMs: 0,
-    ...noopSteps({ capturePreviewAudioUrl: undefined })
-  });
-
-  const resultPromise = adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
-  await page.whenWebSocketArmed;
-  const ws = fakeWebSocket(SYNTHESIS_WS_URL);
-  page.emit('websocket', ws);
-  await driveWebSocket(ws);
-  return resultPromise;
-}
-
-test('default capturePreviewAudioUrl resolves with audio_link from the SYNTHESIS SUCCESS frame', async () => {
-  const page = fakePlaywrightPage();
-  const result = await runCaptureScenario(page, async (ws) => {
-    // Full sequence matching a real live capture, so protocolWarnings comes back
-    // clean (GET_REMAINING_PREVIEW deliberately excluded - see preview-recorder.js).
-    ws.emitFrame('framesent', { type: 'INIT', accessToken: 'super-secret-jwt-should-never-leak' });
-    ws.emitFrame('framereceived', { type: 'INIT', status: 1 });
-    ws.emitFrame('framesent', { type: 'PING' });
-    ws.emitFrame('framereceived', { type: 'PONG' });
-    ws.emitFrame('framesent', { type: 'SYNTHESIS', payload: { text: 'hi' }, accessToken: 'super-secret-jwt-should-never-leak' });
-    ws.emitFrame('framereceived', {
-      type: 'SYNTHESIS',
-      status: 1,
-      result: { status: 'IN_PROGRESS', request_id: 'req-xyz' }
-    });
-    ws.emitFrame('framereceived', {
-      type: 'SYNTHESIS',
-      status: 1,
-      result: { request_id: 'req-xyz', status: 'SUCCESS', audio_link: 'https://cdn.example/audio.mp3' }
-    });
-  });
-
-  assert.equal(result.audioUrl, 'https://cdn.example/audio.mp3');
-  assert.equal(result.requestId, 'req-xyz');
-  assert.equal(result.metadata.format, 'mp3');
-  assert.deepEqual(result.metadata.protocolWarnings, []);
 });
 
 test('redactSensitiveFields replaces token-shaped fields at any depth without touching the rest', () => {
@@ -447,34 +385,5 @@ test('redactSensitiveFields replaces token-shaped fields at any depth without to
   assert.equal(redacted.payload.headers.Authorization, '[REDACTED]');
   assert.equal(redacted.type, 'SYNTHESIS');
   assert.equal(redacted.payload.text, 'hello');
-  // Original object must be left untouched.
   assert.equal(input.accessToken, 'super-secret-jwt-should-never-leak');
-});
-
-test('default capturePreviewAudioUrl ignores a websocket that does not match the synthesis URL pattern', async () => {
-  const page = fakePlaywrightPage();
-  const browserService = fakeBrowserService(page);
-  const adapter = new VbeePreviewAdapter({
-    browserService,
-    actionDelayMs: 0,
-    ...noopSteps({ capturePreviewAudioUrl: undefined })
-  });
-
-  const resultPromise = adapter.synthesize({ id: 'job-1', voice_code: 'x', content: 'hi' });
-  await page.whenWebSocketArmed;
-
-  const unrelated = fakeWebSocket('wss://vbee.vn/api/v1/some-other-channel');
-  page.emit('websocket', unrelated);
-  unrelated.emitFrame('framereceived', {
-    type: 'SYNTHESIS', status: 1, result: { status: 'SUCCESS', audio_link: 'https://cdn.example/wrong.mp3' }
-  });
-
-  const real = fakeWebSocket(SYNTHESIS_WS_URL);
-  page.emit('websocket', real);
-  real.emitFrame('framereceived', {
-    type: 'SYNTHESIS', status: 1, result: { request_id: 'req-real', status: 'SUCCESS', audio_link: 'https://cdn.example/right.mp3' }
-  });
-
-  const result = await resultPromise;
-  assert.equal(result.audioUrl, 'https://cdn.example/right.mp3');
 });

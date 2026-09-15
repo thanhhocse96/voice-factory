@@ -32,15 +32,15 @@ flowchart TD
 
 ### `vbee_preview_download`
 
-This mode uses the application/session JWT path to insert or request preview text and capture the preview audio result.
+This mode uses the application/session JWT path to request preview audio without driving the Draft.js editor.
 
 Expected behavior:
 
 ```text
-get authenticated app/session state
-submit or inject preview text
-trigger preview/listen flow
-discover the temporary audio URL or response payload
+attach to authenticated studio browser session
+capture session bearer from the app's own bootstrap Authorization headers (page JS only)
+send INIT + SYNTHESIS on wss://vbee.vn/api/v1/synthesis/demo from page.evaluate()
+discover the temporary audio URL from the SYNTHESIS SUCCESS frame
 download immediately
 return normalized provider result
 ```

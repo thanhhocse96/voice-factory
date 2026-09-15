@@ -167,7 +167,7 @@ Provider-specific credentials (Vbee JWT/accessToken, session logic, etc.) **must
    - **Own everything external**: auth method, voice mapping, protocol (WS frames, REST), browser session usage, token extraction/echo, error mapping.
    - For Vbee specifically:
      - `vbee_preview_download`: "use authenticated app/session JWT or preview/listen flow".
-     - Expected: attach to browser context that has real user login → open WS to `wss://vbee.vn/api/v1/synthesis/demo` → receive `{"type":"INIT","accessToken":"<jwt>"}` from Vbee → echo it in client frames → must send `GET_REMAINING_PREVIEW` after SUCCESS (this sequence is already harnessed in M2 `preview-recorder.js` for testability without live account).
+     - Expected: attach to a browser context that already has a real user login → capture the session bearer from the studio app's own bootstrap `Authorization` headers **inside page JS only** (`addInitScript` + reload) → from `page.evaluate()`, open `wss://vbee.vn/api/v1/synthesis/demo` and send client `INIT` / `SYNTHESIS` frames there. The raw token must not cross into Node, JobRunner, UI, or logs; only `{ audioUrl, requestId, redacted frames }` may return. `GET_REMAINING_PREVIEW` is a post-success quota check, not part of audio delivery (see `preview-recorder.js`). Preview jobs must not type into the Draft.js editor.
      - `vbee_official_download`: reuse authenticated browser session or extract Bearer JWT for official REST endpoints.
    - Return only **normalized** result to FileService (no raw tokens or Vbee details leak upward).
    - "Vbee-specific JWT, preview, browser, and official download steps stay inside Vbee provider adapter code." (07)
