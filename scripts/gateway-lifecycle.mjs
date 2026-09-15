@@ -61,7 +61,13 @@ async function start() {
 
   await fs.mkdir(runtimeDir, { recursive: true });
   const out = await fs.open(logPath, 'a');
-  const child = spawn('npm', ['run', 'dev'], {
+  // Spawns node directly (matching package.json's own "dev"/"start" script) rather than
+  // `npm run dev`: on Windows, `npm` resolves to npm.cmd, which spawn() with shell:false
+  // (the default) cannot execute directly - confirmed live, this silently produced no
+  // child process at all when launched from the Tauri shell. process.execPath is the
+  // exact node binary already running this script, so it's guaranteed to exist with no
+  // extra PATH lookup, and avoids depending on npm being present at all.
+  const child = spawn(process.execPath, ['--experimental-sqlite', 'server.js'], {
     cwd: rootDir,
     detached: true,
     stdio: ['ignore', out.fd, out.fd],

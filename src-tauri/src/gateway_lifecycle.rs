@@ -180,10 +180,34 @@ fn project_root() -> Result<PathBuf, LifecycleError> {
         return Ok(PathBuf::from(root));
     }
 
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(PathBuf::from)
-        .ok_or_else(|| LifecycleError::new("cannot resolve VoiceFactory project root"))
+    // Dev builds (cargo run / tauri dev) always run from src-tauri/target/**, nowhere
+    // near gateway/scripts - CARGO_MANIFEST_DIR (baked in at compile time) is the only
+    // way to find the real repo root in that case. A release build is what actually
+    // ships in an installer, where CARGO_MANIFEST_DIR would instead bake in the path
+    // of whichever machine ran `cargo build` - meaningless on a machine that installed
+    // it.
+    if cfg!(debug_assertions) {
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(PathBuf::from)
+            .ok_or_else(|| LifecycleError::new("cannot resolve VoiceFactory project root"));
+    }
+
+    let exe_dir = env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(PathBuf::from))
+        .ok_or_else(|| LifecycleError::new("cannot resolve VoiceFactory project root"))?;
+
+    // Where bundle.resources actually lands at runtime is not the same in every case:
+    // the raw `tauri build` output (target/<triple>/release/) places gateway/scripts
+    // directly beside the exe (confirmed live), while an NSIS install was documented
+    // (not yet independently confirmed live) to nest them one level down under
+    // "resources". Check for the real marker file rather than assume either one.
+    let nested = exe_dir.join("resources");
+    if nested.join("scripts").join("gateway-lifecycle.mjs").is_file() {
+        return Ok(nested);
+    }
+    Ok(exe_dir)
 }
 
 fn snapshot_from_json(output: &str) -> Result<RuntimeSnapshot, LifecycleError> {

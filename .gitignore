@@ -7,6 +7,15 @@ gw.log
 src-tauri/target/
 src-tauri/gen/
 
+# `tauri icon` also emits Android/iOS/macOS/Store assets. NSIS bundle only
+# uses 32x32, 128x128, 128x128@2x, and icon.ico (plus icon.png for generate_context).
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/*.icns
+src-tauri/icons/Square*.png
+src-tauri/icons/StoreLogo.png
+src-tauri/icons/64x64.png
+
 data/*.db
 data/*.db-shm
 data/*.db-wal
