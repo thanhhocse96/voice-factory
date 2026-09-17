@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { readJson, sendError, sendFile, sendJson, sendStaticFile } from './http-utils.js';
+import { assetsToCsv, queueToCsv } from '../infrastructure/csv.js';
+import { readJson, sendCsv, sendError, sendFile, sendJson, sendStaticFile } from './http-utils.js';
 
 const VBEE_SESSION_LABELS = {
   fake: 'fake',
@@ -87,6 +88,10 @@ export function createRouter({ config, queueService, fileService, jobRunner, bro
         return sendJson(res, 200, { ok: true, jobs: queueService.listJobs() });
       }
 
+      if (req.method === 'GET' && url.pathname === '/api/queue.csv') {
+        return sendCsv(res, 'queue.csv', queueToCsv(queueService.listJobsForExport()));
+      }
+
       const jobMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)$/);
       if (req.method === 'GET' && jobMatch) {
         const job = queueService.getJob(jobMatch[1]);
@@ -107,6 +112,10 @@ export function createRouter({ config, queueService, fileService, jobRunner, bro
 
       if (req.method === 'GET' && url.pathname === '/api/assets') {
         return sendJson(res, 200, { ok: true, assets: queueService.listAssets() });
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/assets.csv') {
+        return sendCsv(res, 'assets.csv', assetsToCsv(queueService.listAssetsForExport()));
       }
 
       const audioMatch = url.pathname.match(/^\/api\/audio\/([^/]+)$/);

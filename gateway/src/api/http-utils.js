@@ -20,6 +20,17 @@ export function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+export function sendCsv(res, filename, csv) {
+  const body = Buffer.from(csv, 'utf8');
+  res.writeHead(200, {
+    'content-type': 'text/csv; charset=utf-8',
+    'content-disposition': `attachment; filename="${filename}"`,
+    'content-length': body.length,
+    'cache-control': 'no-store'
+  });
+  res.end(body);
+}
+
 export function sendError(res, error) {
   sendJson(res, error.statusCode || 500, {
     ok: false,

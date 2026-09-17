@@ -355,6 +355,12 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .table-wrap {
   overflow: auto;
 }
@@ -415,6 +421,10 @@ th {
 .badge.cancelled {
   background: #fee4e2;
   color: var(--danger);
+}
+
+#assetsMessage {
+  padding: 8px 14px 0;
 }
 
 .asset-list {

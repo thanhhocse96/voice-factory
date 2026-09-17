@@ -110,7 +110,10 @@
         <section class="panel full-width" aria-label="Queue">
           <div class="panel-head">
             <h2>Queue</h2>
-            <button class="ghost" id="refreshQueue" type="button">Refresh</button>
+            <div class="panel-actions">
+              <button class="ghost" id="exportQueueCsv" type="button">Export CSV</button>
+              <button class="ghost" id="refreshQueue" type="button">Refresh</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -133,8 +136,12 @@
         <section class="panel">
           <div class="panel-head">
             <h2>Assets</h2>
-            <button class="ghost" id="refreshAssets" type="button">Refresh</button>
+            <div class="panel-actions">
+              <button class="ghost" id="exportAssetsCsv" type="button">Export CSV</button>
+              <button class="ghost" id="refreshAssets" type="button">Refresh</button>
+            </div>
           </div>
+          <p class="message" id="assetsMessage" role="status"></p>
           <div id="assetList" class="asset-list compact"></div>
         </section>
 

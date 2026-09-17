@@ -53,6 +53,14 @@ export class QueueService {
     `).all();
   }
 
+  listJobsForExport() {
+    return this.db.prepare(`
+      SELECT *
+      FROM tts_queue
+      ORDER BY created_at DESC
+    `).all();
+  }
+
   getJob(id) {
     return this.db.prepare('SELECT * FROM tts_queue WHERE id = ?').get(id);
   }
@@ -113,6 +121,15 @@ export class QueueService {
       WHERE filename NOT LIKE '%.tmp'
       ORDER BY created_at DESC
       LIMIT 100
+    `).all();
+  }
+
+  listAssetsForExport() {
+    return this.db.prepare(`
+      SELECT *
+      FROM audio_assets
+      WHERE filename NOT LIKE '%.tmp'
+      ORDER BY created_at DESC
     `).all();
   }
 }

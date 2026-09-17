@@ -23,7 +23,12 @@ function fakeConfig(overrides = {}) {
 
 function fakeDeps(overrides = {}) {
   return {
-    queueService: { listJobs: () => [] },
+    queueService: {
+      listJobs: () => [],
+      listJobsForExport: () => [],
+      listAssets: () => [],
+      listAssetsForExport: () => []
+    },
     fileService: { resolveAudioPath: () => null },
     jobRunner: { status: () => 'running' },
     browserService: { healthcheck: async () => ({ status: 'available', degraded: false }) },
@@ -165,4 +170,59 @@ test('GET /health with CORS_ORIGIN unset has no Access-Control-Allow-Origin head
   await route(fakeReq({ url: '/health' }), res);
 
   assert.equal(res.headers['access-control-allow-origin'], undefined);
+});
+
+test('GET /api/queue.csv returns CSV with attachment headers', async () => {
+  const route = makeRouter({
+    ...fakeDeps(),
+    queueService: {
+      listJobs: () => [],
+      listJobsForExport: () => [{
+        id: 'job-1',
+        status: 'done',
+        content: 'hello, "world"',
+        voice_code: 'fake_voice'
+      }]
+    }
+  });
+  const res = fakeRes();
+
+  await route(fakeReq({ url: '/api/queue.csv' }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['content-type'], 'text/csv; charset=utf-8');
+  assert.equal(res.headers['content-disposition'], 'attachment; filename="queue.csv"');
+  const body = res.body.toString('utf8');
+  assert.equal(body.startsWith('\uFEFF'), true);
+  assert.match(body, /job-1/);
+  assert.match(body, /"hello, ""world"""/);
+});
+
+test('GET /api/assets.csv uses the export list and is not JSON', async () => {
+  const route = makeRouter({
+    ...fakeDeps(),
+    queueService: {
+      listAssets: () => [{ id: 'ui-only' }],
+      listAssetsForExport: () => [{ id: 'asset-1', filename: 'clip.mp3', content: 'text' }]
+    }
+  });
+  const res = fakeRes();
+
+  await route(fakeReq({ url: '/api/assets.csv' }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['content-disposition'], 'attachment; filename="assets.csv"');
+  const body = res.body.toString('utf8');
+  assert.match(body, /asset-1/);
+  assert.match(body, /clip\.mp3/);
+  assert.equal(body.includes('ui-only'), false);
+});
+
+test('GET /api/queue.csv with no Authorization returns 401 when authToken is configured', async () => {
+  const route = makeRouter({ config: fakeConfig({ security: { authToken: 'secret', corsOrigin: '' } }) });
+  const res = fakeRes();
+
+  await route(fakeReq({ url: '/api/queue.csv' }), res);
+
+  assert.equal(res.statusCode, 401);
 });

@@ -27,10 +27,13 @@ const el = {
   formMessage: document.querySelector('#formMessage'),
   queueRows: document.querySelector('#queueRows'),
   assetList: document.querySelector('#assetList'),
+  assetsMessage: document.querySelector('#assetsMessage'),
   assetDetail: document.querySelector('#assetDetail'),
   editAssetBin: document.querySelector('#editAssetBin'),
   refreshQueue: document.querySelector('#refreshQueue'),
+  exportQueueCsv: document.querySelector('#exportQueueCsv'),
   refreshAssets: document.querySelector('#refreshAssets'),
+  exportAssetsCsv: document.querySelector('#exportAssetsCsv'),
   themeToggle: document.querySelector('#themeToggle'),
   tabs: Array.from(document.querySelectorAll('.tab')),
   tabPanels: Array.from(document.querySelectorAll('.tab-panel'))
@@ -51,6 +54,33 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
+async function downloadCsv(path, filename) {
+  const headers = {};
+  if (state.gatewayToken) headers.authorization = `Bearer ${state.gatewayToken}`;
+
+  const response = await fetch(`${state.gatewayBaseUrl}${path}`, { headers });
+  if (!response.ok) {
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data.error) message = data.error;
+    } catch {
+      // non-JSON error body
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function audioSrc(filename) {
   const url = `${state.gatewayBaseUrl}/api/audio/${encodeURIComponent(filename)}`;
   return state.gatewayToken ? `${url}?token=${encodeURIComponent(state.gatewayToken)}` : url;
@@ -59,6 +89,11 @@ function audioSrc(filename) {
 function setMessage(message, tone = 'muted') {
   el.formMessage.textContent = message;
   el.formMessage.style.color = tone === 'error' ? 'var(--danger)' : 'var(--muted)';
+}
+
+function setAssetsMessage(message, tone = 'muted') {
+  el.assetsMessage.textContent = message;
+  el.assetsMessage.style.color = tone === 'error' ? 'var(--danger)' : 'var(--muted)';
 }
 
 function renderHealth() {
@@ -263,7 +298,23 @@ el.gatewayTokenInput.value = state.gatewayToken;
 
 el.queueForm.addEventListener('submit', addQueue);
 el.refreshQueue.addEventListener('click', refreshQueue);
+el.exportQueueCsv.addEventListener('click', async () => {
+  try {
+    await downloadCsv('/api/queue.csv', 'queue.csv');
+    setMessage('Queue CSV downloaded.');
+  } catch (error) {
+    setMessage(error.message, 'error');
+  }
+});
 el.refreshAssets.addEventListener('click', refreshAssets);
+el.exportAssetsCsv.addEventListener('click', async () => {
+  try {
+    await downloadCsv('/api/assets.csv', 'assets.csv');
+    setAssetsMessage('Assets CSV downloaded.');
+  } catch (error) {
+    setAssetsMessage(error.message, 'error');
+  }
+});
 el.themeToggle.addEventListener('click', () => {
   applyTheme(state.theme === 'dark' ? 'light' : 'dark');
 });
