@@ -1,4 +1,5 @@
 import { VbeePreviewProtocolRecorder } from '../protocol/preview-recorder.js';
+import { extractVoicesArray, normalizeVoices } from '../catalog/voice-catalog.js';
 
 const VBEE_STUDIO_URL = 'https://studio.vbee.vn';
 const LOGIN_REDIRECT_PATTERN = /auth\.vbee\.vn\/login/i;
@@ -6,6 +7,8 @@ const PREVIEW_BUTTON_SELECTOR = '#try-listening';
 const SYNTHESIS_WS_URL = 'wss://vbee.vn/api/v1/synthesis/demo';
 const PREVIEW_CAPTURE_TIMEOUT_MS = 30000;
 const TOKEN_CAPTURE_TIMEOUT_MS = 10000;
+const CATALOG_FETCH_TIMEOUT_MS = 15000;
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const STUDIO_READY_TIMEOUT_MS = 15000;
 const STUDIO_READY_POLL_MS = 500;
@@ -17,6 +20,10 @@ export class VbeePreviewAdapter {
     ensureStudioPage = defaultEnsureStudioPage,
     extractSessionToken = defaultExtractSessionToken,
     requestPreviewSynthesis = defaultRequestPreviewSynthesis,
+    fetchCatalogFromPage = defaultFetchCatalogFromPage,
+    voicesUrl = '',
+    catalogArrayField = '',
+    catalogCacheTtlMs = CATALOG_CACHE_TTL_MS,
     actionDelayMs = 0
   } = {}) {
     if (!browserService) {
@@ -27,13 +34,84 @@ export class VbeePreviewAdapter {
       installTokenCapture,
       ensureStudioPage,
       extractSessionToken,
-      requestPreviewSynthesis
+      requestPreviewSynthesis,
+      fetchCatalogFromPage
     };
+    this.voicesUrl = voicesUrl;
+    this.catalogArrayField = catalogArrayField;
+    this.catalogCacheTtlMs = catalogCacheTtlMs;
     this.actionDelayMs = actionDelayMs;
+    this._catalogCache = null;
+    this._catalogCacheAt = 0;
   }
 
   async synthesize(job) {
     return this.browserService.withPage((page) => this.#runPreviewFlow(page, job));
+  }
+
+  async listVoices() {
+    if (!this.voicesUrl) {
+      return {
+        ok: true,
+        source: 'vbee-preview',
+        fetchedAt: null,
+        voices: [],
+        warning: 'VBEE_VOICES_URL not configured - voice catalog disabled. Type a voice code manually.'
+      };
+    }
+
+    const now = Date.now();
+    if (this._catalogCache && now - this._catalogCacheAt < this.catalogCacheTtlMs) {
+      return this._catalogCache;
+    }
+
+    try {
+      const catalog = await this.browserService.withPage((page) => this.#fetchCatalog(page));
+      this._catalogCache = catalog;
+      this._catalogCacheAt = Date.now();
+      return catalog;
+    } catch {
+      return {
+        ok: true,
+        source: 'vbee-preview',
+        fetchedAt: null,
+        voices: [],
+        warning: 'voice catalog unavailable (session or network)'
+      };
+    }
+  }
+
+  async #fetchCatalog(page) {
+    await this.steps.installTokenCapture(page);
+    await this.steps.ensureStudioPage(page);
+    await this.steps.extractSessionToken(page);
+
+    const result = await this.steps.fetchCatalogFromPage(page, {
+      url: this.voicesUrl,
+      arrayField: this.catalogArrayField,
+      timeoutMs: CATALOG_FETCH_TIMEOUT_MS
+    });
+
+    if (!result || !result.ok) {
+      return {
+        ok: true,
+        source: 'vbee-preview',
+        fetchedAt: null,
+        voices: [],
+        warning: `voice catalog request failed (${(result && result.error) || 'unknown'})`
+      };
+    }
+
+    const raw = extractVoicesArray(result.data, this.catalogArrayField);
+    const voices = normalizeVoices(raw, { source: 'vbee-preview' });
+
+    return {
+      ok: true,
+      source: 'vbee-preview',
+      fetchedAt: new Date().toISOString(),
+      voices,
+      warning: voices.length ? null : 'voice catalog loaded but no voices found'
+    };
   }
 
   async #runPreviewFlow(page, job) {
@@ -310,4 +388,32 @@ export function redactSensitiveFields(value) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function defaultFetchCatalogFromPage(page, { url } = {}) {
+  const result = await page.evaluate(async ({ reqUrl, timeoutMs }) => {
+    const accessToken = window.__vbeeToken;
+    if (!accessToken) {
+      return { ok: false, error: 'token-missing' };
+    }
+
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeout = setTimeout(() => controller && controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(reqUrl, {
+        headers: { authorization: `Bearer ${accessToken}` },
+        signal: controller ? controller.signal : undefined
+      });
+      if (!res.ok) return { ok: false, error: `http-${res.status}` };
+      const data = await res.json();
+      return { ok: true, data };
+    } catch {
+      return { ok: false, error: 'network' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, { reqUrl: url, timeoutMs: CATALOG_FETCH_TIMEOUT_MS });
+
+  return result && result.ok ? { ...result, data: redactSensitiveFields(result.data) } : result;
 }

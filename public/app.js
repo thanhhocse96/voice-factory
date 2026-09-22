@@ -2,11 +2,14 @@ const state = {
   health: null,
   jobs: [],
   assets: [],
+  voices: [],
   selectedAssetId: null,
   theme: localStorage.getItem('zc-theme') || 'dark',
   gatewayBaseUrl: localStorage.getItem('vf.gatewayBaseUrl') || '',
   gatewayToken: localStorage.getItem('vf.gatewayToken') || ''
 };
+
+const OWNERSHIP_LABELS = { vbee: 'Vbee', personal: 'Cá nhân', community: 'Cộng đồng', unknown: 'Khác' };
 
 const el = {
   healthStatus: document.querySelector('#healthStatus'),
@@ -22,6 +25,8 @@ const el = {
   queueForm: document.querySelector('#queueForm'),
   content: document.querySelector('#content'),
   voiceCode: document.querySelector('#voiceCode'),
+  voiceList: document.querySelector('#voiceList'),
+  voiceCatalogStatus: document.querySelector('#voiceCatalogStatus'),
   speed: document.querySelector('#speed'),
   incognito: document.querySelector('#incognito'),
   formMessage: document.querySelector('#formMessage'),
@@ -221,10 +226,56 @@ async function refreshAssets() {
   renderAssets();
 }
 
+function renderVoiceCatalog(data) {
+  state.voices = data.voices || [];
+
+  el.voiceList.innerHTML = state.voices.map((voice) => {
+    const label = voice.name ? `${voice.name} - ${OWNERSHIP_LABELS[voice.ownership] || 'Khác'}` : '';
+    return `<option value="${escapeHtml(voice.code)}">${escapeHtml(label)}</option>`;
+  }).join('');
+
+  if (data.warning) {
+    el.voiceCatalogStatus.textContent = `Voice catalog: ${data.warning}`;
+    return;
+  }
+
+  if (state.voices.length === 0) {
+    el.voiceCatalogStatus.textContent = 'Voice catalog: rỗng.';
+    return;
+  }
+
+  const counts = {};
+  for (const voice of state.voices) counts[voice.ownership] = (counts[voice.ownership] || 0) + 1;
+  const parts = [];
+  if (counts.vbee) parts.push(`Vbee ${counts.vbee}`);
+  if (counts.personal) parts.push(`Cá nhân ${counts.personal}`);
+  if (counts.community) parts.push(`Cộng đồng ${counts.community}`);
+  if (counts.unknown) parts.push(`Khác ${counts.unknown}`);
+
+  el.voiceCatalogStatus.textContent = `Voice catalog: ${state.voices.length} giọng (${parts.join(' · ')}). Gõ code hoặc tên để tìm.`;
+}
+
+async function loadVoiceCatalog() {
+  try {
+    const data = await apiFetch('/api/voices');
+    renderVoiceCatalog(data);
+  } catch {
+    el.voiceCatalogStatus.textContent = 'Voice catalog: không tải được.';
+  }
+}
+
+function resolveVoiceCode(value) {
+  const raw = String(value || '').trim();
+  const byCode = state.voices.find((voice) => voice.code === raw);
+  if (byCode) return byCode.code;
+  const byName = state.voices.find((voice) => String(voice.name || '').toLowerCase() === raw.toLowerCase());
+  return byName ? byName.code : raw;
+}
+
 async function refreshAll() {
   await refreshHealth();
   await refreshDesktopRuntime();
-  await Promise.all([refreshQueue(), refreshAssets()]);
+  await Promise.all([refreshQueue(), refreshAssets(), loadVoiceCatalog()]);
 }
 
 async function addQueue(event) {
@@ -236,7 +287,7 @@ async function addQueue(event) {
       method: 'POST',
       body: JSON.stringify({
         content: el.content.value,
-        voice_code: el.voiceCode.value,
+        voice_code: resolveVoiceCode(el.voiceCode.value),
         speed: Number(el.speed.value || 1.05),
         incognito: el.incognito.checked ? 1 : 0
       })

@@ -81,7 +81,9 @@
 
           <div class="field">
             <label for="voiceCode">Voice</label>
-            <input id="voiceCode" name="voiceCode" value="fake_voice">
+            <input id="voiceCode" name="voiceCode" list="voiceList" autocomplete="off" value="fake_voice">
+            <datalist id="voiceList"></datalist>
+            <p class="hint" id="voiceCatalogStatus">Voice catalog: đang tải...</p>
           </div>
 
           <div class="field">

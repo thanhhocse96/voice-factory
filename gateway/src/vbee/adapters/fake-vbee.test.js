@@ -23,3 +23,18 @@ test('FakeVbeeAdapter result never signals a downloadable asset', async () => {
 
   assert.equal(Boolean(result.audioUrl || result.localAudioPath), false);
 });
+
+test('FakeVbeeAdapter exposes a seeded voice catalog including a personal voice', async () => {
+  const adapter = new FakeVbeeAdapter();
+  const catalog = await adapter.listVoices();
+
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.source, 'fake');
+  assert.ok(catalog.voices.some((voice) => voice.code === 'fake_voice'));
+  assert.ok(catalog.voices.some((voice) => voice.ownership === 'personal'));
+  assert.ok(catalog.voices.some((voice) => voice.ownership === 'vbee'));
+  for (const voice of catalog.voices) {
+    assert.ok(voice.code);
+    assert.ok(voice.name);
+  }
+});

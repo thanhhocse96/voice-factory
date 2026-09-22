@@ -19,9 +19,12 @@ function isAuthExempt(method, pathname) {
   return pathname === '/health' || pathname === '/' || pathname.startsWith('/dev/');
 }
 
-export function createRouter({ config, queueService, fileService, jobRunner, browserService, db }) {
+export function createRouter({ config, queueService, fileService, jobRunner, browserService, db, vbeeAdapter }) {
   const publicDir = path.join(config.rootDir, 'public');
   const { authToken = '', corsOrigin = '' } = config.security || {};
+  const voiceCatalog = vbeeAdapter || {
+    listVoices: async () => ({ ok: true, source: 'none', fetchedAt: null, voices: [], warning: null })
+  };
 
   return async function route(req, res) {
     try {
@@ -90,6 +93,11 @@ export function createRouter({ config, queueService, fileService, jobRunner, bro
 
       if (req.method === 'GET' && url.pathname === '/api/queue.csv') {
         return sendCsv(res, 'queue.csv', queueToCsv(queueService.listJobsForExport()));
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/voices') {
+        const catalog = await voiceCatalog.listVoices();
+        return sendJson(res, 200, { ok: true, ...catalog });
       }
 
       const jobMatch = url.pathname.match(/^\/api\/jobs\/([^/]+)$/);

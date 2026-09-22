@@ -58,7 +58,7 @@ Test through the browser and through `scripts/smoke-gateway.sh`:
 
 Chunk splitting is not implemented here.
 
-Voice catalog management is not implemented here.
+Voice catalog management is not implemented here. (M2_023: picker hiện tại chỉ là datalist từ `GET /api/voices` — chưa có thêm/sửa/xoá giọng, chưa preview mẫu giọng.)
 
 Sound Editor timeline is represented as a placeholder Edit tab only.
 

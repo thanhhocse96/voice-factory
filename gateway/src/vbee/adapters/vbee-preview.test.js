@@ -387,3 +387,107 @@ test('redactSensitiveFields replaces token-shaped fields at any depth without to
   assert.equal(redacted.payload.text, 'hello');
   assert.equal(input.accessToken, 'super-secret-jwt-should-never-leak');
 });
+
+test('listVoices degrades to a warning when no voicesUrl is configured', async () => {
+  const browserService = fakeBrowserService();
+  const adapter = new VbeePreviewAdapter({ browserService, ...noopSteps() });
+
+  const catalog = await adapter.listVoices();
+
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.source, 'vbee-preview');
+  assert.deepEqual(catalog.voices, []);
+  assert.match(catalog.warning, /VBEE_VOICES_URL/);
+  assert.deepEqual(browserService.calls, []);
+});
+
+test('listVoices fetches the studio catalog in page context and normalizes it', async () => {
+  const page = fakePlaywrightPage({
+    evaluateImpl: async () => ({
+      ok: true,
+      data: {
+        result: {
+          voices: [
+            { voice_code: 'hn_female_ngochuyen_full_48k-fhg', voice_name: 'Ngọc Huyền', gender: 'female' },
+            { voice_code: 'my_personal_voice', voice_name: 'Giọng tôi', is_personal: true }
+          ]
+        }
+      }
+    })
+  });
+  const browserService = fakeBrowserService(page);
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    voicesUrl: 'https://studio.vbee.vn/api/catalog/voices',
+    ...noopSteps()
+  });
+
+  const catalog = await adapter.listVoices();
+
+  assert.equal(catalog.ok, true);
+  assert.equal(catalog.source, 'vbee-preview');
+  assert.ok(catalog.fetchedAt);
+  assert.equal(catalog.warning, null);
+  assert.equal(catalog.voices.length, 2);
+  assert.equal(catalog.voices[0].code, 'hn_female_ngochuyen_full_48k-fhg');
+  assert.equal(catalog.voices[0].ownership, 'vbee');
+  assert.equal(catalog.voices[1].ownership, 'personal');
+
+  const evaluateCall = page.calls.find(([name]) => name === 'evaluate');
+  assert.ok(evaluateCall, 'catalog fetch should run through page.evaluate');
+  assert.equal(JSON.stringify(evaluateCall[1]).includes('Bearer'), false);
+  assert.equal(JSON.stringify(evaluateCall[1]).includes('accessToken'), false);
+});
+
+test('listVoices caches the catalog across calls within the TTL', async () => {
+  const page = fakePlaywrightPage({
+    evaluateImpl: async () => ({ ok: true, data: { voices: [{ voice_code: 'a-voice', voice_name: 'A' }] } })
+  });
+  const browserService = fakeBrowserService(page);
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    voicesUrl: 'https://studio.vbee.vn/api/catalog/voices',
+    ...noopSteps()
+  });
+
+  await adapter.listVoices();
+  await adapter.listVoices();
+
+  const evaluateCount = page.calls.filter(([name]) => name === 'evaluate').length;
+  assert.equal(evaluateCount, 1);
+});
+
+test('listVoices degrades to a warning, not a throw, when the studio session fails', async () => {
+  const browserService = fakeBrowserService();
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    voicesUrl: 'https://studio.vbee.vn/api/catalog/voices',
+    ...noopSteps({
+      extractSessionToken: async () => {
+        throw new Error('session token missing');
+      }
+    })
+  });
+
+  const catalog = await adapter.listVoices();
+
+  assert.equal(catalog.ok, true);
+  assert.deepEqual(catalog.voices, []);
+  assert.match(catalog.warning, /voice catalog unavailable/);
+});
+
+test('listVoices maps a failed catalog request to a warning with no voices', async () => {
+  const page = fakePlaywrightPage({ evaluateImpl: async () => ({ ok: false, error: 'http-500' }) });
+  const browserService = fakeBrowserService(page);
+  const adapter = new VbeePreviewAdapter({
+    browserService,
+    voicesUrl: 'https://studio.vbee.vn/api/catalog/voices',
+    ...noopSteps()
+  });
+
+  const catalog = await adapter.listVoices();
+
+  assert.equal(catalog.ok, true);
+  assert.deepEqual(catalog.voices, []);
+  assert.match(catalog.warning, /http-500/);
+});

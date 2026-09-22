@@ -12,7 +12,11 @@ import { VbeePreviewAdapter } from './vbee/adapters/vbee-preview.js';
 
 function createVbeeAdapter(config, browserService) {
   if (config.runtime.vbeeAdapter === 'vbee-preview') {
-    return new VbeePreviewAdapter({ browserService });
+    return new VbeePreviewAdapter({
+      browserService,
+      voicesUrl: config.runtime.voiceCatalog.url,
+      catalogArrayField: config.runtime.voiceCatalog.arrayField
+    });
   }
   return new FakeVbeeAdapter();
 }
@@ -39,7 +43,7 @@ export async function startGateway() {
 
   if (config.worker.enabled) jobRunner.start();
 
-  const router = createRouter({ config, queueService, fileService, jobRunner, browserService, db });
+  const router = createRouter({ config, queueService, fileService, jobRunner, browserService, db, vbeeAdapter });
   const server = http.createServer(router);
 
   await new Promise((resolve, reject) => {

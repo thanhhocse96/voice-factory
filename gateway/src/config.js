@@ -25,7 +25,14 @@ export function loadConfig() {
       vbeeAdapter: process.env.VBEE_ADAPTER || 'fake', // 'fake' | 'vbee-preview' (docs/design/08 Phase C)
       delayPolicy: process.env.DELAY_POLICY || 'none',
       browserCdpUrl: process.env.CDP_URL || 'http://127.0.0.1:9222',
-      browserHealthTimeoutMs: intFromEnv('BROWSER_HEALTH_TIMEOUT_MS', 800)
+      browserHealthTimeoutMs: intFromEnv('BROWSER_HEALTH_TIMEOUT_MS', 800),
+      voiceCatalog: {
+        // Studio catalog URL read through the authenticated page context. Until
+        // that endpoint shape is captured live, auto-detection in
+        // voice-catalog.js + VBEE_VOICES_ARRAY_FIELD carry the mapping.
+        url: process.env.VBEE_VOICES_URL || '',
+        arrayField: process.env.VBEE_VOICES_ARRAY_FIELD || ''
+      }
     },
     // Kept out of `runtime` on purpose: /health echoes `runtime` wholesale, and
     // authToken must never appear in an unauthenticated response (docs/design/08 Phase D).

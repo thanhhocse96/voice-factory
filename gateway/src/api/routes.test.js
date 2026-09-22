@@ -226,3 +226,50 @@ test('GET /api/queue.csv with no Authorization returns 401 when authToken is con
 
   assert.equal(res.statusCode, 401);
 });
+
+test('GET /api/voices with no Authorization returns 401 when authToken is configured', async () => {
+  const route = makeRouter({
+    config: fakeConfig({ security: { authToken: 'secret', corsOrigin: '' } }),
+    vbeeAdapter: { listVoices: async () => ({ ok: true, source: 'fake', voices: [] }) }
+  });
+  const res = fakeRes();
+
+  await route(fakeReq({ url: '/api/voices' }), res);
+
+  assert.equal(res.statusCode, 401);
+  assert.equal(JSON.parse(res.body.toString()).error, 'unauthorized');
+});
+
+test('GET /api/voices returns the provider voice catalog', async () => {
+  const catalog = {
+    ok: true,
+    source: 'fake',
+    voices: [
+      { code: 'fake_voice', name: 'Fake Voice', gender: 'female', language: 'vi-VN', ownership: 'vbee', sampleUrl: null, source: 'fake' },
+      { code: 'my_personal_voice_demo', name: 'Giọng cá nhân demo', gender: null, language: null, ownership: 'personal', sampleUrl: null, source: 'fake' }
+    ]
+  };
+  const route = makeRouter({ vbeeAdapter: { listVoices: async () => catalog } });
+  const res = fakeRes();
+
+  await route(fakeReq({ url: '/api/voices' }), res);
+
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body.toString());
+  assert.equal(body.ok, true);
+  assert.equal(body.source, 'fake');
+  assert.equal(body.voices.length, 2);
+  assert.equal(body.voices[1].ownership, 'personal');
+});
+
+test('GET /api/voices still returns 200 with an empty catalog when no vbeeAdapter is wired', async () => {
+  const route = makeRouter();
+  const res = fakeRes();
+
+  await route(fakeReq({ url: '/api/voices' }), res);
+
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body.toString());
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.voices, []);
+});
