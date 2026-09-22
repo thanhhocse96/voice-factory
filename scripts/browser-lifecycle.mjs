@@ -2,9 +2,9 @@
 /**
  * Browser lifecycle manager for VoiceFactory (M2+).
  * Mirrors gateway-lifecycle.mjs pattern.
- * Supports start/status/stop for headed Brave/Chromium with CDP.
+ * Supports start/status/stop/close for headed Brave/Chromium with CDP.
  *
- * Usage: node scripts/browser-lifecycle.mjs <start|status|stop>
+ * Usage: node scripts/browser-lifecycle.mjs <start|status|stop|close>
  *
  * Cross-platform notes:
  * - On Windows: spawns brave.exe directly.
@@ -12,7 +12,8 @@
  * - Profile in .local/runtime/brave-profile or env BROWSER_PROFILE_DIR.
  * - Default CDP 9222, opens to studio.vbee.vn for login.
  *
- * Does not require Playwright (uses CDP HTTP for check).
+ * Does not require Playwright (CDP HTTP for check, native WebSocket for
+ * graceful close on Node >= 22).
  * Stealth flags included for Vbee.
  */
 
@@ -31,6 +32,8 @@ const config = {
   cdpPort: Number(process.env.CDP_PORT || process.env.BROWSER_CDP_PORT || 9222),
   healthTimeoutMs: Number(process.env.BROWSER_HEALTH_TIMEOUT_MS || 2000),
   startupTimeoutMs: Number(process.env.BROWSER_STARTUP_TIMEOUT_MS || 15000),
+  gracefulCloseTimeoutMs: Number(process.env.BROWSER_GRACEFUL_CLOSE_TIMEOUT_MS || 8000),
+  cdpCloseTimeoutMs: Number(process.env.BROWSER_CDP_CLOSE_TIMEOUT_MS || 2000),
   profileDir: process.env.BROWSER_PROFILE_DIR || path.join(runtimeDir, 'brave-profile'),
   targetUrl: process.env.BROWSER_TARGET_URL || 'https://studio.vbee.vn',
   // Brave on Windows typical path; override with BROWSER_PATH
@@ -48,9 +51,11 @@ try {
     await status();
   } else if (command === 'stop') {
     await stop();
+  } else if (command === 'close') {
+    await close();
   } else {
     console.error(`Unknown command: ${command}`);
-    console.error('Usage: node scripts/browser-lifecycle.mjs <start|status|stop>');
+    console.error('Usage: node scripts/browser-lifecycle.mjs <start|status|stop|close>');
     process.exitCode = 2;
   }
 } catch (error) {
@@ -98,6 +103,10 @@ async function start() {
     '--no-first-run',
     '--no-default-browser-check',
     '--password-store=basic',
+    // Keep Vbee/CSP session cookies alive across restarts: Chromium only
+    // preserves session cookies on startup when "continue where I left off"
+    // is active, which this flag enables for the session.
+    '--restore-last-session',
     config.targetUrl
   ];
 
@@ -186,25 +195,97 @@ async function stop() {
     });
   }
 
-  try {
-    process.kill(state.pid, 'SIGTERM');
-    // On Windows may need taskkill
-    if (process.platform === 'win32') {
-      try {
-        execSync(`taskkill /PID ${state.pid} /F`, { stdio: 'ignore' });
-      } catch {}
-    }
-  } catch (e) {
-    // may already dead
-  }
+  // Graceful close order: CDP Browser.close first (so Chromium flushes the
+  // profile / session cookies), then process-level graceful fallback. Never
+  // force-kill by default -- a hard kill can drop the cookie flush and force
+  // a Vbee re-login on the next start.
+  const closedViaCdp = await closeViaCdp();
+  const closedViaProcess = closedViaCdp ? false : await closeViaProcess(state.pid);
+
+  const portClosed = await waitForPortClosed(config.gracefulCloseTimeoutMs);
 
   await fs.rm(statePath, { force: true });
 
   return print({
-    ok: true,
-    action: 'stopped',
+    ok: portClosed,
+    action: portClosed ? 'stopped' : 'close_timeout',
+    closeMethod: closedViaCdp ? 'cdp' : closedViaProcess ? 'process' : 'none',
+    cdpUrl: cdpUrl(),
+    error: portClosed
+      ? null
+      : `CDP ${cdpUrl()} still reachable after graceful close; profile may not have flushed`
+  });
+}
+
+async function close() {
+  const closed = await closeViaCdp();
+  return print({
+    ok: closed,
+    action: closed ? 'closed' : 'not_reachable',
     cdpUrl: cdpUrl()
   });
+}
+
+// Sends Browser.close over the CDP browser websocket. Works for browsers we
+// started or external/remote ones, including WSL->Windows Brave where the
+// process PID is the powershell.exe wrapper and pid-based kill cannot work.
+async function closeViaCdp() {
+  let targetUrl = null;
+  try {
+    const res = await fetch(`${cdpUrl()}/json/version`, {
+      signal: AbortSignal.timeout(config.healthTimeoutMs)
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    targetUrl = data.webSocketDebuggerUrl;
+    if (!targetUrl) return false;
+  } catch {
+    return false;
+  }
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch { /* already closed */ }
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(true), config.cdpCloseTimeoutMs);
+    const ws = new WebSocket(targetUrl);
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    });
+    ws.addEventListener('message', () => finish(true));
+    ws.addEventListener('close', () => finish(true));
+    ws.addEventListener('error', () => finish(false));
+  });
+}
+
+// Graceful process-level fallback: WM_CLOSE / SIGTERM (no -9, no /F) so the
+// browser gets a chance to flush its profile before exiting.
+async function closeViaProcess(pid) {
+  if (!pid) return false;
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /PID ${pid} /T`, { stdio: 'ignore' });
+    } else {
+      process.kill(pid, 'SIGTERM');
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPortClosed(timeoutMs) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (!(await isPortOpen(config.cdpHost, config.cdpPort))) return true;
+    await sleep(250);
+  }
+  return false;
 }
 
 function cdpUrl() {
